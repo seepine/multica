@@ -101,12 +101,20 @@ export const telegramChannel: ChannelPlugin = {
         bots.delete(accountId);
       });
 
-      // Start long polling (this blocks until bot.stop() is called)
+      // Start long polling (fire-and-forget, errors are caught here)
       console.log("[Telegram] Bot is polling for messages");
       bot.start({
         onStart: () => {
           // Already logged above
         },
+      }).catch((err: unknown) => {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (msg.includes("409") || msg.includes("Conflict")) {
+          console.error(`[Telegram] Bot conflict: another instance is already polling with this token. Stop the other process and restart.`);
+        } else {
+          console.error(`[Telegram] Bot polling error: ${msg}`);
+        }
+        bots.delete(accountId);
       });
     },
   },
