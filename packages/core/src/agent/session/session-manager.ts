@@ -11,6 +11,11 @@ import {
   pruneToolResults,
   type ToolResultPruningSettings,
 } from "../context-window/tool-result-pruning.js";
+import {
+  truncateOversizedToolResults,
+  type ToolResultTruncationSettings,
+} from "../context-window/tool-result-truncation.js";
+import { saveToolResultArtifact } from "./artifact-store.js";
 import type { RunLog } from "../run-log.js";
 
 /** Get Kimi model for summarization (use a cheaper model than k2-thinking) */
@@ -62,6 +67,12 @@ export type SessionManagerOptions = {
   /** Tool result pruning settings */
   toolResultPruning?: Partial<ToolResultPruningSettings> | undefined;
 
+  // Pre-emptive tool result truncation
+  /** Whether to enable pre-emptive truncation of oversized tool results (default: true) */
+  enableToolResultTruncation?: boolean | undefined;
+  /** Pre-emptive truncation settings */
+  toolResultTruncation?: Partial<ToolResultTruncationSettings> | undefined;
+
   // Observability
   /** RunLog instance for structured logging */
   runLog?: RunLog | undefined;
@@ -85,6 +96,9 @@ export class SessionManager {
   // Tool result pruning
   private readonly enableToolResultPruning: boolean;
   private readonly toolResultPruning: Partial<ToolResultPruningSettings> | undefined;
+  // Pre-emptive truncation
+  private readonly enableToolResultTruncation: boolean;
+  private readonly toolResultTruncation: Partial<ToolResultTruncationSettings> | undefined;
   // Observability
   private readonly runLog: RunLog;
 
@@ -113,6 +127,10 @@ export class SessionManager {
     // Tool result pruning (enabled by default)
     this.enableToolResultPruning = options.enableToolResultPruning ?? true;
     this.toolResultPruning = options.toolResultPruning;
+
+    // Pre-emptive truncation (enabled by default)
+    this.enableToolResultTruncation = options.enableToolResultTruncation ?? true;
+    this.toolResultTruncation = options.toolResultTruncation;
 
     // Observability
     this.runLog = options.runLog ?? { log() {}, async flush() {} };
@@ -231,12 +249,36 @@ export class SessionManager {
     message: AgentMessage,
     options?: { internal?: boolean; displayContent?: UserMessage["content"]; source?: import("./types.js").MessageSource },
   ) {
+    // Pre-emptive truncation: save oversized tool results as artifacts
+    // and persist a truncated version in the JSONL session file.
+    let persistMessage = message;
+    if (this.enableToolResultTruncation && message.role === "user") {
+      const result = truncateOversizedToolResults({
+        message,
+        contextWindowTokens: this.contextWindowTokens,
+        settings: this.toolResultTruncation,
+        saveArtifact: (toolCallId, content) =>
+          saveToolResultArtifact(this.sessionId, toolCallId, content, { baseDir: this.baseDir }),
+      });
+      if (result.truncated) {
+        persistMessage = result.message;
+        for (const art of result.artifacts) {
+          this.runLog.log("tool_result_truncation", {
+            tool_call_id: art.toolCallId,
+            tool_name: art.toolName,
+            original_chars: art.originalChars,
+            artifact_path: art.artifactRelPath,
+          });
+        }
+      }
+    }
+
     void this.enqueue(() =>
       appendEntry(
         this.sessionId,
         {
           type: "message",
-          message,
+          message: persistMessage,
           timestamp: Date.now(),
           ...(options?.internal ? { internal: true } : {}),
           ...(options?.displayContent !== undefined

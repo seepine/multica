@@ -67,3 +67,14 @@ export {
   DEFAULT_TOOL_RESULT_PRUNING_SETTINGS,
   pruneToolResults,
 } from "./tool-result-pruning.js";
+
+// Pre-emptive tool result truncation
+export type {
+  ToolResultTruncationSettings,
+  TruncatedToolResult,
+  TruncationResult,
+} from "./tool-result-truncation.js";
+export {
+  DEFAULT_TOOL_RESULT_TRUNCATION_SETTINGS,
+  truncateOversizedToolResults,
+} from "./tool-result-truncation.js";
