@@ -21,32 +21,37 @@ This approach is superior to static assertions because:
 1. **Credentials configured**: Run `pnpm multica credentials init` or ensure `~/.super-multica/credentials.json5` has valid provider credentials
 2. **Available providers**: Check with `pnpm multica profile list` or inspect credentials file
 3. **Default provider**: `kimi-coding` (Kimi Code, free tier available). Can override with `--provider`
+4. **`MULTICA_API_URL`**: Required for `web_search` and `data` tools. Set to `https://api-dev.copilothub.ai` for dev environment. Without this, web search and financial data tools will fail with `MULTICA_API_URL is required`
 
 ## Running a Test
 
 ### Basic command
 
 ```bash
+# For prompts that only need exec/read/write tools:
 pnpm multica run --run-log "your test prompt here"
+
+# For prompts that need web_search or data tools (requires API URL):
+MULTICA_API_URL=https://api-dev.copilothub.ai pnpm multica run --run-log "your test prompt here"
 ```
 
 ### With provider override
 
 ```bash
-pnpm multica run --run-log --provider claude-code "your test prompt"
-pnpm multica run --run-log --provider kimi-coding "your test prompt"
-pnpm multica run --run-log --provider anthropic --api-key sk-ant-... "your test prompt"
+MULTICA_API_URL=https://api-dev.copilothub.ai pnpm multica run --run-log --provider claude-code "your test prompt"
+MULTICA_API_URL=https://api-dev.copilothub.ai pnpm multica run --run-log --provider kimi-coding "your test prompt"
+MULTICA_API_URL=https://api-dev.copilothub.ai pnpm multica run --run-log --provider anthropic --api-key sk-ant-... "your test prompt"
 ```
 
 ### Resume a session (multi-turn testing)
 
 ```bash
 # First turn
-pnpm multica run --run-log "Create a file called test.txt with content 'hello'"
+MULTICA_API_URL=https://api-dev.copilothub.ai pnpm multica run --run-log "Create a file called test.txt with content 'hello'"
 # Note the session ID from stderr output: [session: 019c584a-...]
 
 # Second turn (same session)
-pnpm multica run --run-log --session 019c584a-... "Read the file test.txt and tell me its content"
+MULTICA_API_URL=https://api-dev.copilothub.ai pnpm multica run --run-log --session 019c584a-... "Read the file test.txt and tell me its content"
 ```
 
 ### Output

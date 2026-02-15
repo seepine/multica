@@ -170,19 +170,64 @@ Fonts are loaded via `@fontsource` packages (not Google Fonts) for cross-platfor
 The agent engine supports structured run logging for debugging. When enabled, it writes all key execution events to `~/.super-multica/sessions/{sessionId}/run-log.jsonl` alongside the session data.
 
 ```bash
-# Enable via environment variable
-MULTICA_RUN_LOG=1 pnpm multica run "your prompt"
+# Enable via CLI flag
+pnpm multica run --run-log "your prompt"
 
-# Enable during tests
-MULTICA_RUN_LOG=1 pnpm --filter @multica/core test
+# Or via environment variable
+MULTICA_RUN_LOG=1 pnpm multica run "your prompt"
 
 # Or programmatically
 const agent = new Agent({ enableRunLog: true });
 ```
 
-Logged events: `run_start`, `run_end`, `llm_call`, `llm_result`, `tool_start`, `tool_end`, `context_overflow`, `auth_rotate`, `error_classify`, `preflight_compact_start/end`, `compaction`.
+When `--run-log` is enabled, the CLI prints the session directory path to stderr:
+```
+[session: 019c584a-...]
+[session-dir: ~/.super-multica/sessions/019c584a-...]
+```
 
-Each line is a JSON object with `ts` (timestamp) and `event` (type), suitable for AI-assisted log analysis. Implementation: `packages/core/src/agent/run-log.ts`.
+Logged events: `run_start`, `run_end`, `llm_call`, `llm_result`, `tool_start`, `tool_end`, `context_overflow`, `auth_rotate`, `error_classify`, `preflight_compact_start/end`, `tool_result_pruning`, `compaction`, `compaction_detail`.
+
+Each line is a JSON object with `ts` (timestamp) and `event` (type), suitable for AI-assisted log analysis. Full event reference: `packages/core/src/agent/run-log.ts`.
+
+## E2E Testing (Agent-Driven)
+
+E2E tests are executed and analyzed by the Coding Agent (Claude Code), not by vitest. The Coding Agent runs the Multica agent via CLI, reads the structured run-log, and intelligently analyzes intermediate behavior and results.
+
+### How to Run
+
+```bash
+# Basic E2E test (web_search/data tools require MULTICA_API_URL)
+MULTICA_API_URL=https://api-dev.copilothub.ai pnpm multica run --run-log "your test prompt"
+
+# With specific provider
+MULTICA_API_URL=https://api-dev.copilothub.ai pnpm multica run --run-log --provider kimi-coding "your test prompt"
+
+# Multi-turn test (reuse session)
+MULTICA_API_URL=https://api-dev.copilothub.ai pnpm multica run --run-log --session <session-id> "follow-up prompt"
+```
+
+### Analysis Workflow
+
+After running, the Coding Agent should:
+1. Read `{session-dir}/run-log.jsonl` — structured execution events
+2. Read `{session-dir}/session.jsonl` — full conversation transcript (if needed)
+3. Analyze event sequence, tool calls, errors, and timing
+4. Report findings with verdict (pass/fail + details)
+
+### What to Check
+
+- **Event completeness**: `run_start` → ... → `run_end` (no orphaned starts)
+- **Tool pairing**: every `tool_start` has a matching `tool_end`
+- **Error handling**: `is_error`, `error_classify`, `auth_rotate` events
+- **Compaction health**: `tokens_removed > 0` when compaction fires
+- **Performance**: `llm_result.duration_ms`, tool execution times
+
+### Important
+
+- **`MULTICA_API_URL=https://api-dev.copilothub.ai`** is required for `web_search` and `data` tools. Without it, these tools fail with `MULTICA_API_URL is required`.
+- Default provider is `kimi-coding`. Override with `--provider`.
+- Detailed guide with feature-specific test playbooks: `docs/e2e-testing-guide.md`
 
 ## Credentials Setup
 
