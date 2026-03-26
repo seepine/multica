@@ -107,8 +107,15 @@ The CLI manages authentication, workspace configuration, and the local agent dae
 ### Install
 
 ```bash
+brew tap multica-ai/tap
+brew install multica-cli
+```
+
+Or build from source:
+
+```bash
 make build
-cp server/bin/multica /usr/local/bin/multica   # or ~/.local/bin/multica
+cp server/bin/multica /usr/local/bin/multica
 ```
 
 ### Authentication
