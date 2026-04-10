@@ -13,8 +13,7 @@ import {
 } from "@multica/ui/components/ui/dialog";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@multica/ui/components/ui/tooltip";
 import { Button } from "@multica/ui/components/ui/button";
-import { ContentEditor, type ContentEditorRef } from "../editor";
-import { TitleEditor } from "../editor";
+import { ContentEditor, type ContentEditorRef, TitleEditor, useFileDropZone, FileDropOverlay } from "../editor";
 import { StatusIcon, StatusPicker, PriorityPicker, AssigneePicker, DueDatePicker } from "../issues/components";
 import { ProjectPicker } from "../projects/components/project-picker";
 import { useWorkspaceStore } from "@multica/core/workspace";
@@ -62,6 +61,9 @@ export function CreateIssueModal({ onClose, data }: { onClose: () => void; data?
 
   const [title, setTitle] = useState(draft.title);
   const descEditorRef = useRef<ContentEditorRef>(null);
+  const { isDragOver: descDragOver, dropZoneProps: descDropZoneProps } = useFileDropZone({
+    onDrop: (files) => files.forEach((f) => descEditorRef.current?.uploadFile(f)),
+  });
   const [status, setStatus] = useState<IssueStatus>((data?.status as IssueStatus) || draft.status);
   const [priority, setPriority] = useState<IssuePriority>(draft.priority);
   const [submitting, setSubmitting] = useState(false);
@@ -215,7 +217,7 @@ export function CreateIssueModal({ onClose, data }: { onClose: () => void; data?
         </div>
 
         {/* Description — takes remaining space */}
-        <div className="flex-1 min-h-0 overflow-y-auto px-5">
+        <div {...descDropZoneProps} className="relative flex-1 min-h-0 overflow-y-auto px-5">
           <ContentEditor
             ref={descEditorRef}
             defaultValue={draft.description}
@@ -224,6 +226,7 @@ export function CreateIssueModal({ onClose, data }: { onClose: () => void; data?
             onUploadFile={handleUpload}
             debounceMs={500}
           />
+          {descDragOver && <FileDropOverlay />}
         </div>
 
         {/* Property toolbar */}

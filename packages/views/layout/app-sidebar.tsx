@@ -47,7 +47,7 @@ import {
 import { Tooltip, TooltipTrigger, TooltipContent } from "@multica/ui/components/ui/tooltip";
 import { useAuthStore } from "@multica/core/auth";
 import { useWorkspaceStore } from "@multica/core/workspace";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { inboxKeys, deduplicateInboxItems } from "@multica/core/inbox/queries";
 import { api } from "@multica/core/api";
 import { useModalStore } from "@multica/core/modals";
@@ -107,7 +107,9 @@ export function AppSidebar({ topSlot, searchSlot, headerClassName, headerStyle }
   );
   const hasRuntimeUpdates = useMyRuntimesNeedUpdate(wsId);
 
+  const queryClient = useQueryClient();
   const logout = () => {
+    queryClient.clear();
     authLogout();
     useWorkspaceStore.getState().clearWorkspace();
   };

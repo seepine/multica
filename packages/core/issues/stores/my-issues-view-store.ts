@@ -7,6 +7,7 @@ import {
   viewStoreSlice,
   viewStorePersistOptions,
 } from "./view-store";
+import { registerForWorkspaceRehydration } from "../../platform/workspace-storage";
 
 export type MyIssuesScope = "assigned" | "created" | "agents";
 
@@ -17,7 +18,7 @@ export interface MyIssuesViewState extends IssueViewState {
 
 const basePersist = viewStorePersistOptions("multica_my_issues_view");
 
-export const myIssuesViewStore: StoreApi<MyIssuesViewState> = createStore<MyIssuesViewState>()(
+const _myIssuesViewStore = createStore<MyIssuesViewState>()(
   persist(
     (set) => ({
       ...viewStoreSlice(set as unknown as StoreApi<IssueViewState>["setState"]),
@@ -26,6 +27,7 @@ export const myIssuesViewStore: StoreApi<MyIssuesViewState> = createStore<MyIssu
     }),
     {
       name: basePersist.name,
+      storage: basePersist.storage,
       partialize: (state: MyIssuesViewState) => ({
         ...basePersist.partialize(state),
         scope: state.scope,
@@ -33,3 +35,7 @@ export const myIssuesViewStore: StoreApi<MyIssuesViewState> = createStore<MyIssu
     },
   ),
 );
+
+export const myIssuesViewStore: StoreApi<MyIssuesViewState> = _myIssuesViewStore;
+
+registerForWorkspaceRehydration(() => _myIssuesViewStore.persist.rehydrate());

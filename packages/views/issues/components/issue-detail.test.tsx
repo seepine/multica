@@ -85,6 +85,8 @@ vi.mock("../../navigation", () => ({
 
 // Mock editor components (Tiptap requires real DOM)
 vi.mock("../../editor", () => ({
+  useFileDropZone: () => ({ isDragOver: false, dropZoneProps: {} }),
+  FileDropOverlay: () => null,
   ReadonlyContent: ({ content }: { content: string }) => (
     <div data-testid="readonly-content">{content}</div>
   ),

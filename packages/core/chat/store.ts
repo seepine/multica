@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import type { StorageAdapter } from "../types";
+import { getCurrentWorkspaceId, registerForWorkspaceRehydration } from "../platform/workspace-storage";
 
 const AGENT_STORAGE_KEY = "multica:chat:selectedAgentId";
 const SESSION_STORAGE_KEY = "multica:chat:activeSessionId";
@@ -39,12 +40,17 @@ export interface ChatStoreOptions {
 export function createChatStore(options: ChatStoreOptions) {
   const { storage } = options;
 
-  return create<ChatState>((set) => ({
+  const wsKey = (base: string) => {
+    const wsId = getCurrentWorkspaceId();
+    return wsId ? `${base}:${wsId}` : base;
+  };
+
+  const store = create<ChatState>((set) => ({
     isOpen: false,
     isFullscreen: false,
-    activeSessionId: storage.getItem(SESSION_STORAGE_KEY),
+    activeSessionId: storage.getItem(wsKey(SESSION_STORAGE_KEY)),
     pendingTaskId: null,
-    selectedAgentId: storage.getItem(AGENT_STORAGE_KEY),
+    selectedAgentId: storage.getItem(wsKey(AGENT_STORAGE_KEY)),
     showHistory: false,
     timelineItems: [],
     setOpen: (open) =>
@@ -57,15 +63,15 @@ export function createChatStore(options: ChatStoreOptions) {
     toggleFullscreen: () => set((s) => ({ isFullscreen: !s.isFullscreen })),
     setActiveSession: (id) => {
       if (id) {
-        storage.setItem(SESSION_STORAGE_KEY, id);
+        storage.setItem(wsKey(SESSION_STORAGE_KEY), id);
       } else {
-        storage.removeItem(SESSION_STORAGE_KEY);
+        storage.removeItem(wsKey(SESSION_STORAGE_KEY));
       }
       set({ activeSessionId: id });
     },
     setPendingTask: (taskId) => set({ pendingTaskId: taskId, timelineItems: [] }),
     setSelectedAgentId: (id) => {
-      storage.setItem(AGENT_STORAGE_KEY, id);
+      storage.setItem(wsKey(AGENT_STORAGE_KEY), id);
       set({ selectedAgentId: id });
     },
     setShowHistory: (show) => set({ showHistory: show }),
@@ -80,4 +86,14 @@ export function createChatStore(options: ChatStoreOptions) {
       }),
     clearTimeline: () => set({ timelineItems: [] }),
   }));
+
+  registerForWorkspaceRehydration(() => {
+    store.setState({
+      activeSessionId: storage.getItem(wsKey(SESSION_STORAGE_KEY)),
+      selectedAgentId: storage.getItem(wsKey(AGENT_STORAGE_KEY)),
+      timelineItems: [],
+    });
+  });
+
+  return store;
 }

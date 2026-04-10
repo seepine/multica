@@ -7,6 +7,8 @@ import type { StoreApi, UseBoundStore } from "zustand";
 import type { AuthState } from "../auth/store";
 import type { WorkspaceStore } from "../workspace/store";
 import { createLogger } from "../logger";
+import { clearWorkspaceStorage } from "../platform/storage-cleanup";
+import { defaultStorage } from "../platform/storage";
 import { issueKeys } from "../issues/queries";
 import { projectKeys } from "../projects/queries";
 import { runtimeKeys } from "../runtimes/queries";
@@ -238,6 +240,7 @@ export function useRealtimeSync(
 
     const unsubWsDeleted = ws.on("workspace:deleted", (p) => {
       const { workspace_id } = p as WorkspaceDeletedPayload;
+      clearWorkspaceStorage(defaultStorage, workspace_id);
       const currentWs = workspaceStore.getState().workspace;
       if (currentWs?.id === workspace_id) {
         logger.warn("current workspace deleted, switching");
@@ -250,6 +253,8 @@ export function useRealtimeSync(
       const { user_id } = p as MemberRemovedPayload;
       const myUserId = authStore.getState().user?.id;
       if (user_id === myUserId) {
+        const wsId = workspaceStore.getState().workspace?.id;
+        if (wsId) clearWorkspaceStorage(defaultStorage, wsId);
         logger.warn("removed from workspace, switching");
         onToast?.("You were removed from this workspace", "info");
         workspaceStore.getState().refreshWorkspaces();
