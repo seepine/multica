@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/url"
 	"os"
 	"strings"
@@ -185,7 +186,8 @@ func init() {
 	issueRunMessagesCmd.Flags().Int("since", 0, "Only return messages after this sequence number")
 
 	// issue comment add
-	issueCommentAddCmd.Flags().String("content", "", "Comment content (required)")
+	issueCommentAddCmd.Flags().String("content", "", "Comment content (required unless --content-stdin)")
+	issueCommentAddCmd.Flags().Bool("content-stdin", false, "Read comment content from stdin (avoids shell escaping issues)")
 	issueCommentAddCmd.Flags().String("parent", "", "Parent comment ID (reply to a specific comment)")
 	issueCommentAddCmd.Flags().StringSlice("attachment", nil, "File path(s) to attach (can be specified multiple times)")
 	issueCommentAddCmd.Flags().String("output", "json", "Output format: table or json")
@@ -637,8 +639,15 @@ func runIssueCommentList(cmd *cobra.Command, args []string) error {
 
 func runIssueCommentAdd(cmd *cobra.Command, args []string) error {
 	content, _ := cmd.Flags().GetString("content")
+	if useStdin, _ := cmd.Flags().GetBool("content-stdin"); useStdin {
+		data, err := io.ReadAll(os.Stdin)
+		if err != nil {
+			return fmt.Errorf("read stdin: %w", err)
+		}
+		content = strings.TrimRight(string(data), "\n")
+	}
 	if content == "" {
-		return fmt.Errorf("--content is required")
+		return fmt.Errorf("--content or --content-stdin is required")
 	}
 
 	client, err := newAPIClient(cmd)
