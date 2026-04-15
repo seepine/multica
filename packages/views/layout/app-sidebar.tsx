@@ -27,7 +27,6 @@ import {
   SquarePen,
   CircleUser,
   FolderKanban,
-  Ellipsis,
   PinOff,
   Zap,
 } from "lucide-react";
@@ -57,6 +56,11 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@multica/ui/components/ui/dropdown-menu";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@multica/ui/components/ui/popover";
 import { useAuthStore } from "@multica/core/auth";
 import { useWorkspaceStore } from "@multica/core/workspace";
 import { workspaceListOptions, myInvitationListOptions, workspaceKeys } from "@multica/core/workspace/queries";
@@ -477,33 +481,51 @@ export function AppSidebar({ topSlot, searchSlot, headerClassName, headerStyle }
 
         <SidebarFooter className="p-2">
           <div className="border-t pt-2">
-            <div className="flex items-center gap-2.5 rounded-md px-2 py-1.5">
-              <ActorAvatar
-                name={user?.name ?? ""}
-                initials={(user?.name ?? "U").charAt(0).toUpperCase()}
-                avatarUrl={user?.avatar_url}
-                size={28}
-              />
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium leading-tight">
-                  {user?.name}
-                </p>
-                <p className="truncate text-xs text-muted-foreground leading-tight">
-                  {user?.email}
-                </p>
-              </div>
-              <DropdownMenu>
-                <DropdownMenuTrigger className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors">
-                  <Ellipsis className="size-4" />
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" side="top" sideOffset={4}>
-                  <DropdownMenuItem variant="destructive" onClick={logout}>
+            <Popover>
+              <PopoverTrigger className="flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 hover:bg-accent transition-colors cursor-pointer">
+                <ActorAvatar
+                  name={user?.name ?? ""}
+                  initials={(user?.name ?? "U").charAt(0).toUpperCase()}
+                  avatarUrl={user?.avatar_url}
+                  size={28}
+                />
+                <div className="min-w-0 flex-1 text-left">
+                  <p className="truncate text-sm font-medium leading-tight">
+                    {user?.name}
+                  </p>
+                  <p className="truncate text-xs text-muted-foreground leading-tight">
+                    {user?.email}
+                  </p>
+                </div>
+              </PopoverTrigger>
+              <PopoverContent side="top" sideOffset={8} align="start" className="w-64 p-0">
+                <div className="flex items-center gap-3 p-3 border-b">
+                  <ActorAvatar
+                    name={user?.name ?? ""}
+                    initials={(user?.name ?? "U").charAt(0).toUpperCase()}
+                    avatarUrl={user?.avatar_url}
+                    size={36}
+                  />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium">
+                      {user?.name}
+                    </p>
+                    <p className="truncate text-xs text-muted-foreground">
+                      {user?.email}
+                    </p>
+                  </div>
+                </div>
+                <div className="p-1">
+                  <button
+                    onClick={logout}
+                    className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-destructive hover:bg-destructive/10 transition-colors cursor-pointer"
+                  >
                     <LogOut className="h-3.5 w-3.5" />
                     Log out
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
+                  </button>
+                </div>
+              </PopoverContent>
+            </Popover>
           </div>
         </SidebarFooter>
         <SidebarRail />
