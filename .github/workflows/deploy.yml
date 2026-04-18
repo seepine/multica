@@ -1,4 +1,4 @@
-name: Release docker
+name: Deploy
 
 on:
   push:
@@ -30,8 +30,8 @@ jobs:
           push: true
           file: Dockerfile
           tags: |
-            ${{ vars.DOCKER_USERNAME }}/backend:${{ steps.meta.outputs.version }}
-            ${{ vars.DOCKER_USERNAME }}/backend:latest
+            ${{ vars.DOCKER_USERNAME }}/multica-backend:${{ steps.meta.outputs.version }}
+            ${{ vars.DOCKER_USERNAME }}/multica-backend:latest
 
       - name: Build and push frontend
         uses: docker/build-push-action@v6
@@ -40,8 +40,8 @@ jobs:
           push: true
           file: Dockerfile.web
           tags: |
-            ${{ vars.DOCKER_USERNAME }}/frontend:${{ steps.meta.outputs.version }}
-            ${{ vars.DOCKER_USERNAME }}/frontend:latest
+            ${{ vars.DOCKER_USERNAME }}/multica-frontend:${{ steps.meta.outputs.version }}
+            ${{ vars.DOCKER_USERNAME }}/multica-frontend:latest
 
       - name: Success
         run: echo "Release success"
@@ -72,8 +72,8 @@ jobs:
           push: true
           file: Dockerfile
           tags: |
-            ghcr.io/${{ github.actor }}/backend:${{ steps.meta.outputs.version }}
-            ghcr.io/${{ github.actor }}/backend:latest
+            ghcr.io/${{ github.actor }}/multica-backend:${{ steps.meta.outputs.version }}
+            ghcr.io/${{ github.actor }}/multica-backend:latest
 
       - name: Build and push frontend
         uses: docker/build-push-action@v6
@@ -82,8 +82,8 @@ jobs:
           push: true
           file: Dockerfile.web
           tags: |
-            ghcr.io/${{ github.actor }}/frontend:${{ steps.meta.outputs.version }}
-            ghcr.io/${{ github.actor }}/frontend:latest
+            ghcr.io/${{ github.actor }}/multica-frontend:${{ steps.meta.outputs.version }}
+            ghcr.io/${{ github.actor }}/multica-frontend:latest
 
       - name: Success
         run: echo "Release success"
