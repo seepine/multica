@@ -216,6 +216,29 @@ func (h *Handler) CreateComment(w http.ResponseWriter, r *http.Request) {
 	// Determine author identity: agent (via X-Agent-ID header) or member.
 	authorType, authorID := h.resolveActor(r, userID, uuidToString(issue.WorkspaceID))
 
+	// Defense against resumed-session drift: when an agent posts from inside a
+	// comment-triggered task AND the comment is being posted on that same
+	// issue, the parent_id must exactly match the task's trigger comment.
+	// Resumed Claude sessions otherwise carry forward a previous turn's
+	// --parent UUID and silently misplace the reply.
+	//
+	// The task.IssueID scope is important: the CLI stamps X-Task-ID on every
+	// request, so an agent legitimately commenting on a different issue must
+	// not be blocked by its current task's trigger. Assignment-triggered
+	// tasks (no TriggerCommentID) are also unaffected.
+	if authorType == "agent" {
+		if taskIDHeader := r.Header.Get("X-Task-ID"); taskIDHeader != "" {
+			task, err := h.Queries.GetAgentTask(r.Context(), parseUUID(taskIDHeader))
+			if err == nil && task.TriggerCommentID.Valid && uuidToString(task.IssueID) == uuidToString(issue.ID) {
+				if uuidToString(parentID) != uuidToString(task.TriggerCommentID) {
+					writeError(w, http.StatusConflict,
+						"parent_id must equal this task's trigger comment id ("+uuidToString(task.TriggerCommentID)+")")
+					return
+				}
+			}
+		}
+	}
+
 	// Expand bare issue identifiers (e.g. MUL-117) into mention links.
 	req.Content = mention.ExpandIssueIdentifiers(r.Context(), h.Queries, issue.WorkspaceID, req.Content)
 

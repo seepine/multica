@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -496,18 +497,56 @@ func (h *Handler) DaemonHeartbeat(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, resp)
 }
 
+// logClaimEndpointSlow emits one structured log when the /tasks/claim endpoint
+// exceeds 500ms, splitting auth / claim / response-build phases so the prod
+// tail can be diagnosed without flooding logs at normal poll rates.
+func logClaimEndpointSlow(runtimeID, outcome string, start time.Time, authMs, claimMs, buildMs int64) {
+	totalMs := time.Since(start).Milliseconds()
+	if totalMs < 500 {
+		return
+	}
+	slog.Info("claim_endpoint slow",
+		"runtime_id", runtimeID,
+		"outcome", outcome,
+		"total_ms", totalMs,
+		"auth_ms", authMs,
+		"claim_ms", claimMs,
+		"build_ms", buildMs,
+	)
+}
+
 // ClaimTaskByRuntime atomically claims the next queued task for a runtime.
 // The response includes the agent's name and skills, fetched fresh from the DB.
 func (h *Handler) ClaimTaskByRuntime(w http.ResponseWriter, r *http.Request) {
 	runtimeID := chi.URLParam(r, "runtimeId")
+	start := time.Now()
+
+	var (
+		outcome                    = "unauth"
+		authMs, claimMs, buildMs   int64
+		buildStart                 time.Time
+	)
+	defer func() {
+		// Emit at function exit so error / unauth paths also carry timing.
+		// build_ms is computed from buildStart only when we entered the
+		// response-build phase (otherwise stays 0).
+		if !buildStart.IsZero() {
+			buildMs = time.Since(buildStart).Milliseconds()
+		}
+		logClaimEndpointSlow(runtimeID, outcome, start, authMs, claimMs, buildMs)
+	}()
 
 	// Verify the caller owns this runtime's workspace.
 	if _, ok := h.requireDaemonRuntimeAccess(w, r, runtimeID); !ok {
 		return
 	}
+	authMs = time.Since(start).Milliseconds()
 
+	claimStart := time.Now()
 	task, err := h.TaskService.ClaimTaskForRuntime(r.Context(), parseUUID(runtimeID))
+	claimMs = time.Since(claimStart).Milliseconds()
 	if err != nil {
+		outcome = "error_claim"
 		writeError(w, http.StatusInternalServerError, "failed to claim task: "+err.Error())
 		return
 	}
@@ -515,8 +554,12 @@ func (h *Handler) ClaimTaskByRuntime(w http.ResponseWriter, r *http.Request) {
 	if task == nil {
 		slog.Debug("no task to claim", "runtime_id", runtimeID)
 		writeJSON(w, http.StatusOK, map[string]any{"task": nil})
+		outcome = "no_task"
 		return
 	}
+
+	outcome = "claimed"
+	buildStart = time.Now()
 
 	// Build response with fresh agent data (name + skills + custom_env + custom_args).
 	resp := taskToResponse(*task)
@@ -594,12 +637,25 @@ func (h *Handler) ClaimTaskByRuntime(w http.ResponseWriter, r *http.Request) {
 					resp.Repos = repos
 				}
 			}
-			// Resume from the chat session's persistent session.
+			// Resume from the chat session's persistent session, falling back
+			// to the most recent task that recorded a session_id when the
+			// chat_session pointer is missing or stale (e.g. a previous task
+			// failed before reporting completion). Without this fallback a
+			// single failed turn would silently drop the entire conversation
+			// memory on the next message.
 			if cs.SessionID.Valid {
 				resp.PriorSessionID = cs.SessionID.String
 			}
 			if cs.WorkDir.Valid {
 				resp.PriorWorkDir = cs.WorkDir.String
+			}
+			if resp.PriorSessionID == "" {
+				if prior, err := h.Queries.GetLastChatTaskSession(r.Context(), cs.ID); err == nil && prior.SessionID.Valid {
+					resp.PriorSessionID = prior.SessionID.String
+					if prior.WorkDir.Valid && resp.PriorWorkDir == "" {
+						resp.PriorWorkDir = prior.WorkDir.String
+					}
+				}
 			}
 			// Load the latest user message for the chat prompt.
 			if msgs, err := h.Queries.ListChatMessages(r.Context(), cs.ID); err == nil && len(msgs) > 0 {
@@ -807,7 +863,9 @@ func (h *Handler) GetTaskStatus(w http.ResponseWriter, r *http.Request) {
 
 // FailTask marks a running task as failed.
 type TaskFailRequest struct {
-	Error string `json:"error"`
+	Error     string `json:"error"`
+	SessionID string `json:"session_id,omitempty"`
+	WorkDir   string `json:"work_dir,omitempty"`
 }
 
 func (h *Handler) FailTask(w http.ResponseWriter, r *http.Request) {
@@ -824,7 +882,7 @@ func (h *Handler) FailTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	task, err := h.TaskService.FailTask(r.Context(), parseUUID(taskID), req.Error)
+	task, err := h.TaskService.FailTask(r.Context(), parseUUID(taskID), req.Error, req.SessionID, req.WorkDir)
 	if err != nil {
 		slog.Warn("fail task failed", "task_id", taskID, "error", err)
 		writeError(w, http.StatusBadRequest, err.Error())
