@@ -2,11 +2,11 @@ package handler
 
 import (
 	"context"
-	"errors"
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -18,6 +18,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/multica-ai/multica/server/internal/analytics"
 	"github.com/multica-ai/multica/server/internal/auth"
 	"github.com/multica-ai/multica/server/internal/logger"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
@@ -35,23 +36,38 @@ func (e SignupError) Error() string {
 var ErrSignupProhibited = SignupError{Message: "user registration is disabled on this self-hosted instance"}
 var ErrEmailNotAllowed = SignupError{Message: "email address or domain not allowed on this instance"}
 
+const devVerificationCodeEnv = "MULTICA_DEV_VERIFICATION_CODE"
+
 type UserResponse struct {
-	ID        string  `json:"id"`
-	Name      string  `json:"name"`
-	Email     string  `json:"email"`
-	AvatarURL *string `json:"avatar_url"`
-	CreatedAt string  `json:"created_at"`
-	UpdatedAt string  `json:"updated_at"`
+	ID                      string          `json:"id"`
+	Name                    string          `json:"name"`
+	Email                   string          `json:"email"`
+	AvatarURL               *string         `json:"avatar_url"`
+	OnboardedAt             *string         `json:"onboarded_at"`
+	OnboardingQuestionnaire json.RawMessage `json:"onboarding_questionnaire"`
+	StarterContentState     *string         `json:"starter_content_state"`
+	CreatedAt               string          `json:"created_at"`
+	UpdatedAt               string          `json:"updated_at"`
 }
 
 func userToResponse(u db.User) UserResponse {
+	// JSONB column is []byte with DEFAULT '{}', so it's never nil at the DB
+	// level. Defensive coalesce just in case a future ALTER makes the column
+	// nullable and some row comes back with no default applied.
+	q := u.OnboardingQuestionnaire
+	if len(q) == 0 {
+		q = []byte("{}")
+	}
 	return UserResponse{
-		ID:        uuidToString(u.ID),
-		Name:      u.Name,
-		Email:     u.Email,
-		AvatarURL: textToPtr(u.AvatarUrl),
-		CreatedAt: timestampToString(u.CreatedAt),
-		UpdatedAt: timestampToString(u.UpdatedAt),
+		ID:                      uuidToString(u.ID),
+		Name:                    u.Name,
+		Email:                   u.Email,
+		AvatarURL:               textToPtr(u.AvatarUrl),
+		OnboardedAt:             timestampToPtr(u.OnboardedAt),
+		OnboardingQuestionnaire: json.RawMessage(q),
+		StarterContentState:     textToPtr(u.StarterContentState),
+		CreatedAt:               timestampToString(u.CreatedAt),
+		UpdatedAt:               timestampToString(u.UpdatedAt),
 	}
 }
 
@@ -78,6 +94,35 @@ func generateCode() (string, error) {
 	return fmt.Sprintf("%06d", n), nil
 }
 
+func isDevVerificationCode(code string) bool {
+	if isProductionEnv() {
+		return false
+	}
+
+	devCode := strings.TrimSpace(os.Getenv(devVerificationCodeEnv))
+	if !isSixDigitCode(devCode) {
+		return false
+	}
+
+	return subtle.ConstantTimeCompare([]byte(code), []byte(devCode)) == 1
+}
+
+func isProductionEnv() bool {
+	return strings.EqualFold(strings.TrimSpace(os.Getenv("APP_ENV")), "production")
+}
+
+func isSixDigitCode(code string) bool {
+	if len(code) != 6 {
+		return false
+	}
+	for _, ch := range code {
+		if ch < '0' || ch > '9' {
+			return false
+		}
+	}
+	return true
+}
+
 func (h *Handler) issueJWT(user db.User) (string, error) {
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 		"sub":   uuidToString(user.ID),
@@ -89,29 +134,66 @@ func (h *Handler) issueJWT(user db.User) (string, error) {
 	return token.SignedString(auth.JWTSecret())
 }
 
-func (h *Handler) findOrCreateUser(ctx context.Context, email string) (db.User, error) {
-	user, err := h.Queries.GetUserByEmail(ctx, email)
-	isNewUser := isNotFound(err)
-	if err != nil && !isNewUser {
-		return db.User{}, err
+// findOrCreateUser returns the existing user for an email, or creates one if
+// none exists. isNew reports whether this call created the user — the signup
+// event fires on that edge, covering both the verification-code and Google
+// OAuth entry points.
+func (h *Handler) findOrCreateUser(ctx context.Context, email string) (user db.User, isNew bool, err error) {
+	user, err = h.Queries.GetUserByEmail(ctx, email)
+	isNew = isNotFound(err)
+	if err != nil && !isNew {
+		return db.User{}, false, err
 	}
 
-	if err := h.checkSignupAllowed(email, isNewUser); err != nil {
-		return db.User{}, err
+	if err := h.checkSignupAllowed(email, isNew); err != nil {
+		return db.User{}, false, err
 	}
 
-	if !isNewUser {
-		return user, nil
+	if !isNew {
+		return user, false, nil
 	}
 
 	name := email
 	if at := strings.Index(email, "@"); at > 0 {
 		name = email[:at]
 	}
-	return h.Queries.CreateUser(ctx, db.CreateUserParams{
+	created, err := h.Queries.CreateUser(ctx, db.CreateUserParams{
 		Name:  name,
 		Email: email,
 	})
+	if err != nil {
+		return db.User{}, false, err
+	}
+	return created, true, nil
+}
+
+// signupSourceFromRequest reads the attribution cookie the web frontend
+// sets on the first pageview (UTM + referrer bundle). The frontend writes
+// a JSON string URL-encoded into the cookie value — Go does not
+// auto-decode Cookie.Value, so we have to unescape here before the string
+// lands in PostHog. Missing cookie / decode failures collapse to the
+// empty string; that simply omits signup_source from the event rather
+// than sending percent-encoded garbage. Never fall back to r.Referer() —
+// the frontend has already sanitised attribution and a raw referer can
+// leak OAuth code/state from the callback URL.
+//
+// The cap is the server-side defence against a client that manages to set
+// an oversize cookie; it matches SIGNUP_SOURCE_MAX_LEN on the frontend.
+const signupSourceMaxLen = 512
+
+func signupSourceFromRequest(r *http.Request) string {
+	c, err := r.Cookie("multica_signup_source")
+	if err != nil || c == nil {
+		return ""
+	}
+	decoded, err := url.QueryUnescape(c.Value)
+	if err != nil {
+		return ""
+	}
+	if len(decoded) > signupSourceMaxLen {
+		return ""
+	}
+	return decoded
 }
 
 func (h *Handler) checkSignupAllowed(email string, isNewUser bool) error {
@@ -260,8 +342,8 @@ func (h *Handler) VerifyCode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	isMasterCode := code == "888888" && os.Getenv("APP_ENV") != "production"
-	if !isMasterCode && subtle.ConstantTimeCompare([]byte(code), []byte(dbCode.Code)) != 1 {
+	isDevCode := isDevVerificationCode(code)
+	if !isDevCode && subtle.ConstantTimeCompare([]byte(code), []byte(dbCode.Code)) != 1 {
 		_ = h.Queries.IncrementVerificationCodeAttempts(r.Context(), dbCode.ID)
 		writeError(w, http.StatusBadRequest, "invalid or expired code")
 		return
@@ -272,7 +354,7 @@ func (h *Handler) VerifyCode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, err := h.findOrCreateUser(r.Context(), email)
+	user, isNew, err := h.findOrCreateUser(r.Context(), email)
 	if err != nil {
 		var signupErr SignupError
 		if errors.As(err, &signupErr) {
@@ -281,6 +363,9 @@ func (h *Handler) VerifyCode(w http.ResponseWriter, r *http.Request) {
 		}
 		writeError(w, http.StatusInternalServerError, "failed to create user")
 		return
+	}
+	if isNew {
+		h.Analytics.Capture(analytics.Signup(uuidToString(user.ID), user.Email, signupSourceFromRequest(r)))
 	}
 
 	tokenString, err := h.issueJWT(user)
@@ -433,7 +518,7 @@ func (h *Handler) GoogleLogin(w http.ResponseWriter, r *http.Request) {
 
 	email := strings.ToLower(strings.TrimSpace(gUser.Email))
 
-	user, err := h.findOrCreateUser(r.Context(), email)
+	user, isNew, err := h.findOrCreateUser(r.Context(), email)
 	if err != nil {
 		var signupErr SignupError
 		if errors.As(err, &signupErr) {
@@ -442,6 +527,11 @@ func (h *Handler) GoogleLogin(w http.ResponseWriter, r *http.Request) {
 		}
 		writeError(w, http.StatusInternalServerError, "failed to create user")
 		return
+	}
+	if isNew {
+		evt := analytics.Signup(uuidToString(user.ID), user.Email, signupSourceFromRequest(r))
+		evt.Properties["auth_method"] = "google"
+		h.Analytics.Capture(evt)
 	}
 
 	// Update name and avatar from Google profile if the user was just created
