@@ -347,27 +347,6 @@ export function AgentCreatePanel({
           </div>
         )}
 
-        <div className="flex items-center gap-1.5 px-5 py-1.5 shrink-0 flex-wrap border-b">
-          <PriorityPicker
-            priority={priority}
-            onUpdate={(u) => u.priority && setPriority(u.priority)}
-            triggerRender={<PillButton />}
-            align="start"
-          />
-          <DueDatePicker
-            dueDate={dueDate}
-            onUpdate={(u) => setDueDate(u.due_date ?? null)}
-            triggerRender={<PillButton />}
-            align="start"
-          />
-          <ProjectPicker
-            projectId={projectId}
-            onUpdate={(u) => setProjectId(u.project_id ?? null)}
-            triggerRender={<PillButton />}
-            align="start"
-          />
-        </div>
-
         {/* Prompt — same rich editor Advanced uses, so paste/drop images,
             mentions, and formatting all work. The dropZone wrapper enables
             drag-and-drop file uploads alongside paste. */}
@@ -392,6 +371,28 @@ export function AgentCreatePanel({
             debounceMs={150}
           />
           {isDragOver && <FileDropOverlay />}
+        </div>
+
+        {/* Toolbar — priority, due date, project pickers rendered below the editor */}
+        <div className="flex items-center gap-1.5 px-5 pb-2 shrink-0 flex-wrap">
+          <PriorityPicker
+            priority={priority}
+            onUpdate={(u) => u.priority && setPriority(u.priority)}
+            triggerRender={<PillButton />}
+            align="start"
+          />
+          <DueDatePicker
+            dueDate={dueDate}
+            onUpdate={(u) => setDueDate(u.due_date ?? null)}
+            triggerRender={<PillButton />}
+            align="start"
+          />
+          <ProjectPicker
+            projectId={projectId}
+            onUpdate={(u) => setProjectId(u.project_id ?? null)}
+            triggerRender={<PillButton />}
+            align="start"
+          />
         </div>
 
         {error && (
