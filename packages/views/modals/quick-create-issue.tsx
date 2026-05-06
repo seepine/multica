@@ -28,9 +28,11 @@ import {
 } from "@multica/core/runtimes";
 import { useFileUpload } from "@multica/core/hooks/use-file-upload";
 import { formatShortcut, modKey, enterKey } from "@multica/core/platform";
-import type { Agent } from "@multica/core/types";
+import type { Agent, IssuePriority } from "@multica/core/types";
 import { ActorAvatar } from "../common/actor-avatar";
 import { canAssignAgent } from "../issues/components/pickers/assignee-picker";
+import { PriorityPicker, DueDatePicker } from "../issues/components";
+import { ProjectPicker } from "../projects/components/project-picker";
 import { useAuthStore } from "@multica/core/auth";
 import { memberListOptions } from "@multica/core/workspace/queries";
 import {
@@ -40,6 +42,7 @@ import {
   FileDropOverlay,
 } from "../editor";
 import { FileUploadButton } from "@multica/ui/components/common/file-upload-button";
+import { PillButton } from "../common/pill-button";
 
 // AgentCreatePanel — agent-mode body of the create-issue dialog. Renders
 // only the inner content; the surrounding `<Dialog>` AND `<DialogContent>`
@@ -144,6 +147,9 @@ export function AgentCreatePanel({
   const [justSent, setJustSent] = useState(false);
   const [sentCount, setSentCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [priority, setPriority] = useState<IssuePriority>("none");
+  const [dueDate, setDueDate] = useState<string | null>(null);
+  const [projectId, setProjectId] = useState<string | null>(null);
 
   // Image paste/drop support: route uploads through the same helper Advanced
   // uses, so users can paste screenshots straight into the prompt and the
@@ -171,7 +177,13 @@ export function AgentCreatePanel({
     setSubmitting(true);
     setError(null);
     try {
-      await api.quickCreateIssue({ agent_id: agentId, prompt: md });
+      await api.quickCreateIssue({
+        agent_id: agentId,
+        prompt: md,
+        ...(priority !== "none" ? { priority } : {}),
+        ...(dueDate ? { due_date: dueDate } : {}),
+        ...(projectId ? { project_id: projectId } : {}),
+      });
       setLastAgentId(agentId);
       clearPrompt();
       setLastMode("agent");
@@ -334,6 +346,27 @@ export function AgentCreatePanel({
               : `This agent's daemon CLI is ${versionCheck.current} — Create with agent needs ≥ ${versionCheck.min}. Upgrade the daemon, or switch to manual create.`}
           </div>
         )}
+
+        <div className="flex items-center gap-1.5 px-5 py-1.5 shrink-0 flex-wrap border-b">
+          <PriorityPicker
+            priority={priority}
+            onUpdate={(u) => u.priority && setPriority(u.priority)}
+            triggerRender={<PillButton />}
+            align="start"
+          />
+          <DueDatePicker
+            dueDate={dueDate}
+            onUpdate={(u) => setDueDate(u.due_date ?? null)}
+            triggerRender={<PillButton />}
+            align="start"
+          />
+          <ProjectPicker
+            projectId={projectId}
+            onUpdate={(u) => setProjectId(u.project_id ?? null)}
+            triggerRender={<PillButton />}
+            align="start"
+          />
+        </div>
 
         {/* Prompt — same rich editor Advanced uses, so paste/drop images,
             mentions, and formatting all work. The dropZone wrapper enables

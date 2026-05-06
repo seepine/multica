@@ -58,6 +58,9 @@ type Task struct {
 	AutopilotSource         string          `json:"autopilot_source,omitempty"`          // manual, schedule, webhook, or api
 	AutopilotTriggerPayload json.RawMessage `json:"autopilot_trigger_payload,omitempty"` // optional trigger payload for webhook/api runs
 	QuickCreatePrompt       string          `json:"quick_create_prompt,omitempty"`       // user's natural-language input for quick-create tasks
+	QuickCreatePriority     string          `json:"quick_create_priority,omitempty"`     // priority explicitly selected in quick-create UI
+	QuickCreateDueDate      string          `json:"quick_create_due_date,omitempty"`     // due date explicitly selected in quick-create UI
+	QuickCreateProjectID    string          `json:"quick_create_project_id,omitempty"`   // project explicitly selected in quick-create UI
 }
 
 // AgentData holds agent details returned by the claim endpoint.
