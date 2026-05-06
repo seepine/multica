@@ -17,6 +17,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/multica-ai/multica/server/internal/logger"
+	"github.com/multica-ai/multica/server/internal/service"
 	"github.com/multica-ai/multica/server/internal/util"
 	"github.com/multica-ai/multica/server/pkg/agent"
 	db "github.com/multica-ai/multica/server/pkg/db/generated"
@@ -857,8 +858,11 @@ func (h *Handler) ChildIssueProgress(w http.ResponseWriter, r *http.Request) {
 // into a `multica issue create` invocation in the background; success and
 // failure both surface as inbox notifications to the requester.
 type QuickCreateIssueRequest struct {
-	AgentID string `json:"agent_id"`
-	Prompt  string `json:"prompt"`
+	AgentID   string  `json:"agent_id"`
+	Prompt    string  `json:"prompt"`
+	Priority  *string `json:"priority,omitempty"`
+	DueDate   *string `json:"due_date,omitempty"`
+	ProjectID *string `json:"project_id,omitempty"`
 }
 
 // QuickCreateIssueResponse echoes the queued task id so the frontend can
@@ -943,8 +947,49 @@ func (h *Handler) QuickCreateIssue(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, status, payload)
 		return
 	}
+	if req.Priority != nil {
+		priority := strings.ToLower(strings.TrimSpace(*req.Priority))
+		if priority == "" {
+			req.Priority = nil
+		} else {
+			switch priority {
+			case "urgent", "high", "medium", "low":
+				req.Priority = &priority
+			default:
+				writeError(w, http.StatusBadRequest, "priority must be one of: urgent, high, medium, low")
+				return
+			}
+		}
+	}
+	if req.DueDate != nil {
+		dueDate := strings.TrimSpace(*req.DueDate)
+		if dueDate == "" {
+			req.DueDate = nil
+		} else {
+			if _, err := time.Parse(time.RFC3339, dueDate); err != nil {
+				writeError(w, http.StatusBadRequest, "invalid due_date format, expected RFC3339")
+				return
+			}
+			req.DueDate = &dueDate
+		}
+	}
+	if req.ProjectID != nil {
+		projectID := strings.TrimSpace(*req.ProjectID)
+		if projectID == "" {
+			req.ProjectID = nil
+		} else {
+			if _, ok := parseUUIDOrBadRequest(w, projectID, "project_id"); !ok {
+				return
+			}
+			req.ProjectID = &projectID
+		}
+	}
 
-	task, err := h.TaskService.EnqueueQuickCreateTask(r.Context(), wsUUID, requesterUUID, agentUUID, prompt)
+	task, err := h.TaskService.EnqueueQuickCreateTask(r.Context(), wsUUID, requesterUUID, agentUUID, prompt, func(qc *service.QuickCreateContext) {
+		qc.Priority = req.Priority
+		qc.DueDate = req.DueDate
+		qc.ProjectID = req.ProjectID
+	})
 	if err != nil {
 		slog.Warn("quick-create enqueue failed", append(logger.RequestAttrs(r), "error", err)...)
 		writeError(w, http.StatusInternalServerError, "failed to enqueue quick-create task")
