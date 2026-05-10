@@ -30,13 +30,33 @@ func TestQuickCreateIssue_StoresProjectID(t *testing.T) {
 	setHandlerTestRuntimeCLIVersion(t, "0.2.24")
 	agentID := createHandlerTestAgent(t, "Quick Create Test Agent", nil)
 
-	const projectID = "123e4567-e89b-12d3-a456-426614174000"
-
+	// Create a test project in the workspace
 	w := httptest.NewRecorder()
-	req := newRequest(http.MethodPost, "/api/issues/quick-create", map[string]any{
+	req := newRequest("POST", "/api/projects?workspace_id="+testWorkspaceID, map[string]any{
+		"title": "Quick Create Test Project",
+	})
+	testHandler.CreateProject(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("CreateProject: expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	var createdProject struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&createdProject); err != nil {
+		t.Fatalf("decode project response: %v", err)
+	}
+	projectID := createdProject.ID
+	t.Cleanup(func() {
+		req := newRequest("DELETE", "/api/projects/"+projectID, nil)
+		req = withURLParam(req, "id", projectID)
+		testHandler.DeleteProject(httptest.NewRecorder(), req)
+	})
+
+	w = httptest.NewRecorder()
+	req = newRequest(http.MethodPost, "/api/issues/quick-create", map[string]any{
 		"agent_id":   agentID,
 		"prompt":     "Create a follow-up issue",
-		"project_id": " " + projectID + " ",
+		"project_id": projectID,
 	})
 	testHandler.QuickCreateIssue(w, req)
 	if w.Code != http.StatusAccepted {
