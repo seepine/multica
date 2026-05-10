@@ -22,7 +22,7 @@ func setHandlerTestRuntimeCLIVersion(t *testing.T, version string) {
 	}
 }
 
-func TestQuickCreateIssue_StoresExplicitFields(t *testing.T) {
+func TestQuickCreateIssue_StoresProjectID(t *testing.T) {
 	if testHandler == nil {
 		t.Skip("database not available")
 	}
@@ -30,16 +30,33 @@ func TestQuickCreateIssue_StoresExplicitFields(t *testing.T) {
 	setHandlerTestRuntimeCLIVersion(t, "0.2.24")
 	agentID := createHandlerTestAgent(t, "Quick Create Test Agent", nil)
 
-	const dueDate = "2025-06-01T00:00:00Z"
-	const projectID = "123e4567-e89b-12d3-a456-426614174000"
-
+	// Create a test project in the workspace
 	w := httptest.NewRecorder()
-	req := newRequest(http.MethodPost, "/api/issues/quick-create", map[string]any{
+	req := newRequest("POST", "/api/projects?workspace_id="+testWorkspaceID, map[string]any{
+		"title": "Quick Create Test Project",
+	})
+	testHandler.CreateProject(w, req)
+	if w.Code != http.StatusCreated {
+		t.Fatalf("CreateProject: expected 201, got %d: %s", w.Code, w.Body.String())
+	}
+	var createdProject struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&createdProject); err != nil {
+		t.Fatalf("decode project response: %v", err)
+	}
+	projectID := createdProject.ID
+	t.Cleanup(func() {
+		req := newRequest("DELETE", "/api/projects/"+projectID, nil)
+		req = withURLParam(req, "id", projectID)
+		testHandler.DeleteProject(httptest.NewRecorder(), req)
+	})
+
+	w = httptest.NewRecorder()
+	req = newRequest(http.MethodPost, "/api/issues/quick-create", map[string]any{
 		"agent_id":   agentID,
 		"prompt":     "Create a follow-up issue",
-		"priority":    " HIGH ",
-		"due_date":   " " + dueDate + " ",
-		"project_id": " " + projectID + " ",
+		"project_id": projectID,
 	})
 	testHandler.QuickCreateIssue(w, req)
 	if w.Code != http.StatusAccepted {
@@ -66,18 +83,12 @@ func TestQuickCreateIssue_StoresExplicitFields(t *testing.T) {
 	if qc.Type != service.QuickCreateContextType {
 		t.Fatalf("context type = %q, want %q", qc.Type, service.QuickCreateContextType)
 	}
-	if qc.Priority == nil || *qc.Priority != "high" {
-		t.Fatalf("context priority = %v, want high", qc.Priority)
-	}
-	if qc.DueDate == nil || *qc.DueDate != dueDate {
-		t.Fatalf("context due_date = %v, want %s", qc.DueDate, dueDate)
-	}
-	if qc.ProjectID == nil || *qc.ProjectID != projectID {
-		t.Fatalf("context project_id = %v, want %s", qc.ProjectID, projectID)
+	if qc.ProjectID != projectID {
+		t.Fatalf("context project_id = %q, want %s", qc.ProjectID, projectID)
 	}
 }
 
-func TestQuickCreateIssue_RejectsInvalidOptionalFields(t *testing.T) {
+func TestQuickCreateIssue_RejectsInvalidProjectID(t *testing.T) {
 	if testHandler == nil {
 		t.Skip("database not available")
 	}
@@ -89,24 +100,6 @@ func TestQuickCreateIssue_RejectsInvalidOptionalFields(t *testing.T) {
 		body map[string]any
 		want string
 	}{
-		{
-			name: "invalid priority",
-			body: map[string]any{
-				"agent_id": agentID,
-				"prompt":   "Create something",
-				"priority": "none",
-			},
-			want: "priority must be one of: urgent, high, medium, low",
-		},
-		{
-			name: "invalid due date",
-			body: map[string]any{
-				"agent_id": agentID,
-				"prompt":   "Create something",
-				"due_date": "tomorrow",
-			},
-			want: "invalid due_date format, expected RFC3339",
-		},
 		{
 			name: "invalid project id",
 			body: map[string]any{

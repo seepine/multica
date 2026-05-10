@@ -5,21 +5,16 @@ import (
 	"testing"
 )
 
-func TestBuildQuickCreatePrompt_AllExplicitFields(t *testing.T) {
+func TestBuildQuickCreatePrompt_ExplicitPriority(t *testing.T) {
 	task := Task{
-		QuickCreatePrompt:    "Fix the login button",
+		QuickCreatePrompt:   "Fix the login button",
 		QuickCreatePriority:  "high",
-		QuickCreateDueDate:   "2025-06-01T00:00:00Z",
-		QuickCreateProjectID: "123e4567-e89b-12d3-a456-426614174000",
 	}
 	got := buildQuickCreatePrompt(task)
 
 	for _, want := range []string{
 		"`--priority high`",
-		"`--due-date 2025-06-01T00:00:00Z`",
-		"`--project 123e4567-e89b-12d3-a456-426614174000`",
 		"`--priority high`.\n\n",
-		"`--due-date 2025-06-01T00:00:00Z`.\n\n",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("prompt missing %q:\n%s", want, got)
@@ -31,6 +26,9 @@ func TestBuildQuickCreatePrompt_AllExplicitFields(t *testing.T) {
 	}
 	if strings.Contains(got, "Map P0/P1") {
 		t.Fatalf("prompt should not include fallback priority guidance when explicit priority is set:\n%s", got)
+	}
+	if strings.Contains(got, "`--due-date`") || strings.Contains(got, "`--project") {
+		t.Fatalf("prompt should not include removed quick-create fields:\n%s", got)
 	}
 }
 
@@ -61,5 +59,41 @@ func TestBuildQuickCreatePrompt_NoneSet(t *testing.T) {
 	}
 	if strings.Contains(got, `\n`) {
 		t.Fatalf("prompt should contain real newlines, got literal \\n:\n%s", got)
+	}
+}
+
+// TestBuildQuickCreatePromptProjectPinning verifies that when the user
+// pins a project in the quick-create modal, the prompt instructs the agent
+// to pass `--project <uuid>` exactly. Without this, the agent would re-read
+// the workspace default and silently drop the user's selection — the same
+// "I have to retype 'in project X' every time" failure mode the modal
+// addition was meant to fix.
+func TestBuildQuickCreatePromptProjectPinning(t *testing.T) {
+	const projectID = "11111111-2222-3333-4444-555555555555"
+	out := buildQuickCreatePrompt(Task{
+		QuickCreatePrompt: "fix the login button color",
+		ProjectID:         projectID,
+		ProjectTitle:      "Web App",
+	})
+	mustContain := []string{
+		"--project \"" + projectID + "\"",
+		"Web App",
+		"modal selection is authoritative",
+	}
+	for _, s := range mustContain {
+		if !strings.Contains(out, s) {
+			t.Errorf("buildQuickCreatePrompt with project missing %q\n--- output ---\n%s", s, out)
+		}
+	}
+
+	// Without a project, the prompt must keep the legacy "omit" instruction
+	// so the agent doesn't accidentally start passing --project on plain
+	// quick-create runs.
+	plain := buildQuickCreatePrompt(Task{QuickCreatePrompt: "fix the login button color"})
+	if !strings.Contains(plain, "**project**: omit") {
+		t.Errorf("buildQuickCreatePrompt without project must keep the omit instruction, got:\n%s", plain)
+	}
+	if strings.Contains(plain, "--project") {
+		t.Errorf("buildQuickCreatePrompt without project must NOT mention --project, got:\n%s", plain)
 	}
 }
