@@ -34,7 +34,6 @@ import { ActorAvatar } from "../common/actor-avatar";
 import { PillButton } from "../common/pill-button";
 import { ProjectPicker } from "../projects/components/project-picker";
 import { canAssignAgent } from "../issues/components/pickers/assignee-picker";
-import { PriorityPicker, DueDatePicker } from "../issues/components";
 import { useAuthStore } from "@multica/core/auth";
 import { memberListOptions } from "@multica/core/workspace/queries";
 import {
@@ -190,9 +189,6 @@ export function AgentCreatePanel({
   const [justSent, setJustSent] = useState(false);
   const [sentCount, setSentCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
-  const [priority, setPriority] = useState<IssuePriority>("none");
-  const [dueDate, setDueDate] = useState<string | null>(null);
-  const [projectId, setProjectId] = useState<string | null>(null);
 
   // Image paste/drop support: route uploads through the same helper Advanced
   // uses, so users can paste screenshots straight into the prompt and the
@@ -436,20 +432,8 @@ export function AgentCreatePanel({
           {isDragOver && <FileDropOverlay />}
         </div>
 
-        {/* Toolbar — priority, due date, project pickers rendered below the editor */}
+        {/* Toolbar — project picker rendered below the editor */}
         <div className="flex items-center gap-1.5 px-5 pb-2 shrink-0 flex-wrap">
-          <PriorityPicker
-            priority={priority}
-            onUpdate={(u) => u.priority && setPriority(u.priority)}
-            triggerRender={<PillButton />}
-            align="start"
-          />
-          <DueDatePicker
-            dueDate={dueDate}
-            onUpdate={(u) => setDueDate(u.due_date ?? null)}
-            triggerRender={<PillButton />}
-            align="start"
-          />
           <ProjectPicker
             projectId={projectId}
             onUpdate={(u) => setProjectId(u.project_id ?? null)}
@@ -461,21 +445,6 @@ export function AgentCreatePanel({
         {error && (
           <div className="px-5 pb-2 text-xs text-destructive">{error}</div>
         )}
-
-        {/* Property toolbar — mirrors the manual panel's pill row so the
-            project pill sits in the same place across both modes. Agent mode
-            owns only the project (status / priority / assignee / due-date are
-            inferred from the prompt), so it's a single pill. The pick is
-            persisted per-workspace via useQuickCreateStore.lastProjectId so
-            users targeting one project skip retyping "in project X". */}
-        <div className="flex items-center gap-1.5 px-4 pb-2 shrink-0 flex-wrap">
-          <ProjectPicker
-            projectId={projectId}
-            onUpdate={(u) => setProjectId(u.project_id ?? null)}
-            triggerRender={<PillButton />}
-            align="start"
-          />
-        </div>
 
         {/* Footer */}
         <div className="flex flex-col gap-2 border-t px-4 py-3 shrink-0 sm:flex-row sm:items-center sm:justify-between">
