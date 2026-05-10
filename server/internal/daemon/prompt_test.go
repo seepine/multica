@@ -5,21 +5,16 @@ import (
 	"testing"
 )
 
-func TestBuildQuickCreatePrompt_AllExplicitFields(t *testing.T) {
+func TestBuildQuickCreatePrompt_ExplicitPriority(t *testing.T) {
 	task := Task{
-		QuickCreatePrompt:    "Fix the login button",
+		QuickCreatePrompt:   "Fix the login button",
 		QuickCreatePriority:  "high",
-		QuickCreateDueDate:   "2025-06-01T00:00:00Z",
-		QuickCreateProjectID: "123e4567-e89b-12d3-a456-426614174000",
 	}
 	got := buildQuickCreatePrompt(task)
 
 	for _, want := range []string{
 		"`--priority high`",
-		"`--due-date 2025-06-01T00:00:00Z`",
-		"`--project 123e4567-e89b-12d3-a456-426614174000`",
 		"`--priority high`.\n\n",
-		"`--due-date 2025-06-01T00:00:00Z`.\n\n",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("prompt missing %q:\n%s", want, got)
@@ -31,6 +26,9 @@ func TestBuildQuickCreatePrompt_AllExplicitFields(t *testing.T) {
 	}
 	if strings.Contains(got, "Map P0/P1") {
 		t.Fatalf("prompt should not include fallback priority guidance when explicit priority is set:\n%s", got)
+	}
+	if strings.Contains(got, "`--due-date`") || strings.Contains(got, "`--project") {
+		t.Fatalf("prompt should not include removed quick-create fields:\n%s", got)
 	}
 }
 
