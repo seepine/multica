@@ -3,6 +3,9 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useDefaultLayout } from "react-resizable-panels";
 import { useQuery } from "@tanstack/react-query";
+import { createIssueViewStore, useClearFiltersOnWorkspaceChange } from "@multica/core/issues/stores/view-store";
+import { ViewStoreProvider } from "@multica/core/issues/stores/view-store-context";
+import { issueListOptions } from "@multica/core/issues/queries";
 import { useWorkspaceId } from "@multica/core/hooks";
 import { useWorkspacePaths } from "@multica/core/paths";
 import { useModalStore } from "@multica/core/modals";
@@ -22,6 +25,8 @@ import {
 } from "@multica/core/inbox/mutations";
 
 import { IssueDetail } from "../../issues/components";
+import { IssueFilterButton } from "../../issues/components/issues-header";
+import { filterIssues, getActiveFilterCount } from "../../issues/utils/filter";
 import { ErrorBoundary } from "@multica/ui/components/common/error-boundary";
 import { useNavigation } from "../../navigation";
 import { toast } from "sonner";
@@ -56,6 +61,8 @@ import { useTypeLabels } from "./inbox-detail-label";
 import { getInboxDisplayTitle } from "./inbox-display";
 import { useT } from "../../i18n";
 
+const inboxViewStore = createIssueViewStore("multica_inbox_view");
+
 export function InboxPage() {
   const { t } = useT("inbox");
   const { searchParams, replace } = useNavigation();
@@ -70,8 +77,45 @@ export function InboxPage() {
   }, [urlIssue]);
 
   const wsId = useWorkspaceId();
+  useClearFiltersOnWorkspaceChange(inboxViewStore, wsId);
   const { data: rawItems = [], isLoading: loading } = useQuery(inboxListOptions(wsId));
+  const { data: allIssues = [] } = useQuery(issueListOptions(wsId));
+  const issueById = useMemo(
+    () => new Map(allIssues.map((issue) => [issue.id, issue])),
+    [allIssues],
+  );
   const items = useMemo(() => deduplicateInboxItems(rawItems), [rawItems]);
+
+  const filterState = inboxViewStore((s) => ({
+    statusFilters: s.statusFilters,
+    priorityFilters: s.priorityFilters,
+    assigneeFilters: s.assigneeFilters,
+    includeNoAssignee: s.includeNoAssignee,
+    creatorFilters: s.creatorFilters,
+    projectFilters: s.projectFilters,
+    includeNoProject: s.includeNoProject,
+    labelFilters: s.labelFilters,
+  }));
+  const hasActiveFilters = getActiveFilterCount(filterState) > 0;
+  const scopedIssues = useMemo(
+    () => items.flatMap((item) => {
+      if (!item.issue_id) return [];
+      const issue = issueById.get(item.issue_id);
+      return issue ? [issue] : [];
+    }),
+    [items, issueById],
+  );
+  const visibleIssueIds = useMemo(
+    () => new Set(filterIssues(scopedIssues, filterState).map((issue) => issue.id)),
+    [scopedIssues, filterState],
+  );
+  const visibleItems = useMemo(
+    () =>
+      hasActiveFilters
+        ? items.filter((item) => item.issue_id && visibleIssueIds.has(item.issue_id))
+        : items,
+    [hasActiveFilters, items, visibleIssueIds],
+  );
 
   const selected = items.find((i) => (i.issue_id ?? i.id) === selectedKey) ?? null;
 
@@ -202,49 +246,54 @@ export function InboxPage() {
           </span>
         )}
       </div>
-      <DropdownMenu>
-        <DropdownMenuTrigger
-          render={
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              className="text-muted-foreground"
-            />
-          }
-        >
-          <MoreHorizontal className="h-4 w-4" />
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-auto">
-          <DropdownMenuItem onClick={handleMarkAllRead}>
-            <CheckCheck className="h-4 w-4" />
-            {t(($) => $.menu.mark_all_read)}
-          </DropdownMenuItem>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem onClick={handleArchiveAll}>
-            <Archive className="h-4 w-4" />
-            {t(($) => $.menu.archive_all)}
-          </DropdownMenuItem>
-          <DropdownMenuItem onClick={handleArchiveAllRead}>
-            <BookCheck className="h-4 w-4" />
-            {t(($) => $.menu.archive_all_read)}
-          </DropdownMenuItem>
-          <DropdownMenuItem onClick={handleArchiveCompleted}>
-            <ListChecks className="h-4 w-4" />
-            {t(($) => $.menu.archive_completed)}
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
+      <ViewStoreProvider store={inboxViewStore}>
+        <div className="flex items-center gap-1">
+          <IssueFilterButton scopedIssues={scopedIssues} />
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              render={
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  className="text-muted-foreground"
+                />
+              }
+            >
+              <MoreHorizontal className="h-4 w-4" />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-auto">
+              <DropdownMenuItem onClick={handleMarkAllRead}>
+                <CheckCheck className="h-4 w-4" />
+                {t(($) => $.menu.mark_all_read)}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={handleArchiveAll}>
+                <Archive className="h-4 w-4" />
+                {t(($) => $.menu.archive_all)}
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={handleArchiveAllRead}>
+                <BookCheck className="h-4 w-4" />
+                {t(($) => $.menu.archive_all_read)}
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={handleArchiveCompleted}>
+                <ListChecks className="h-4 w-4" />
+                {t(($) => $.menu.archive_completed)}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      </ViewStoreProvider>
     </PageHeader>
   );
 
-  const listBody = items.length === 0 ? (
+  const listBody = visibleItems.length === 0 ? (
     <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
       <Inbox className="mb-3 h-8 w-8 text-muted-foreground/50" />
-      <p className="text-sm">{t(($) => $.list.empty)}</p>
+      <p className="text-sm">{hasActiveFilters ? t(($) => $.list.empty_filtered) : t(($) => $.list.empty)}</p>
     </div>
   ) : (
     <div>
-      {items.map((item) => (
+      {visibleItems.map((item) => (
         <InboxListItem
           key={item.id}
           item={item}

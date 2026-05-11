@@ -12,6 +12,17 @@ export interface IssueFilters {
   labelFilters: string[];
 }
 
+export function getActiveFilterCount(filters: IssueFilters) {
+  let count = 0;
+  if (filters.statusFilters.length > 0) count++;
+  if (filters.priorityFilters.length > 0) count++;
+  if (filters.assigneeFilters.length > 0 || filters.includeNoAssignee) count++;
+  if (filters.creatorFilters.length > 0) count++;
+  if (filters.projectFilters.length > 0 || filters.includeNoProject) count++;
+  if (filters.labelFilters.length > 0) count++;
+  return count;
+}
+
 /**
  * Filter issues using positive selection model.
  * Empty arrays = no filter (show all). Non-empty = show only matching.

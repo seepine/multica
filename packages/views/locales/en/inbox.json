@@ -11,6 +11,7 @@
   },
   "list": {
     "empty": "No notifications",
+    "empty_filtered": "No notifications match these filters",
     "mark_done_tooltip": "Mark as done",
     "archive_tooltip": "Archive",
     "time": {

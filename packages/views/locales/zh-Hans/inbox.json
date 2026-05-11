@@ -11,6 +11,7 @@
   },
   "list": {
     "empty": "暂无通知",
+    "empty_filtered": "没有符合筛选条件的通知",
     "mark_done_tooltip": "标为已完成",
     "archive_tooltip": "归档",
     "time": {
