@@ -415,7 +415,7 @@ export function AgentCreatePanel({
             editor unbounded and pushed the modal past the viewport. */}
         <div
           {...dropZoneProps}
-          className="relative flex flex-1 px-5 pb-3 min-h-[140px] overflow-y-auto"
+          className="relative px-5 pb-3 flex-1 min-h-[140px] overflow-y-auto"
         >
           <ContentEditor
             ref={editorRef}
@@ -432,8 +432,17 @@ export function AgentCreatePanel({
           {isDragOver && <FileDropOverlay />}
         </div>
 
-        {/* Toolbar — project picker rendered below the editor */}
-        <div className="flex items-center gap-1.5 px-5 pb-2 shrink-0 flex-wrap">
+        {error && (
+          <div className="px-5 pb-2 text-xs text-destructive">{error}</div>
+        )}
+
+        {/* Property toolbar — mirrors the manual panel's pill row so the
+            project pill sits in the same place across both modes. Agent mode
+            owns only the project (status / priority / assignee / due-date are
+            inferred from the prompt), so it's a single pill. The pick is
+            persisted per-workspace via useQuickCreateStore.lastProjectId so
+            users targeting one project skip retyping "in project X". */}
+        <div className="flex items-center gap-1.5 px-4 pb-2 shrink-0 flex-wrap">
           <ProjectPicker
             projectId={projectId}
             onUpdate={(u) => setProjectId(u.project_id ?? null)}
@@ -441,10 +450,6 @@ export function AgentCreatePanel({
             align="start"
           />
         </div>
-
-        {error && (
-          <div className="px-5 pb-2 text-xs text-destructive">{error}</div>
-        )}
 
         {/* Footer */}
         <div className="flex flex-col gap-2 border-t px-4 py-3 shrink-0 sm:flex-row sm:items-center sm:justify-between">

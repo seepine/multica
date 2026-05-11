@@ -5,60 +5,39 @@ import (
 	"testing"
 )
 
-func TestBuildQuickCreatePrompt_ExplicitPriority(t *testing.T) {
-	task := Task{
-		QuickCreatePrompt:   "Fix the login button",
-		QuickCreatePriority:  "high",
-	}
-	got := buildQuickCreatePrompt(task)
+// TestBuildQuickCreatePromptRules locks in the rules that govern how the
+// quick-create agent is allowed to translate raw user input into the issue
+// description body. Each substring corresponds to a concrete failure mode
+// observed in production output:
+//   - meta-instructions ("create an issue", "cc @X") leaking into the body
+//   - the Context section being misused as an apology log when no external
+//     references were actually fetched
+//   - hard-line rules being silently dropped on prompt rewrites
+func TestBuildQuickCreatePromptRules(t *testing.T) {
+	out := buildQuickCreatePrompt(Task{QuickCreatePrompt: "fix the login button color"})
 
-	for _, want := range []string{
-		"`--priority high`",
-		"`--priority high`.\n\n",
-	} {
-		if !strings.Contains(got, want) {
-			t.Fatalf("prompt missing %q:\n%s", want, got)
+	mustContain := []string{
+		// high-fidelity invariant
+		"Faithfully restate what the user wants",
+		"Preserve specific names, identifiers, file paths",
+		// strip non-spec material: verbal routing wrappers + conversational fillers
+		"verbal routing wrappers about creating the issue",
+		"pure conversational fillers",
+		// cc routing must survive: mention link stays in description so the
+		// auto-subscribe path fires (multica issue create has no --subscriber flag)
+		"CC exception",
+		"auto-subscribes members",
+		// context section is conditional and must not be an apology log
+		"include ONLY when the input cited external resources",
+		"never use it as an apology log",
+		// hard rules
+		"never invent requirements",
+		"never reduce multi-sentence input",
+	}
+	for _, s := range mustContain {
+		if !strings.Contains(out, s) {
+			t.Errorf("buildQuickCreatePrompt output missing required rule: %q", s)
 		}
-	}
-
-	if strings.Contains(got, `\n`) {
-		t.Fatalf("prompt should contain real newlines, got literal \\n:\n%s", got)
-	}
-	if strings.Contains(got, "Map P0/P1") {
-		t.Fatalf("prompt should not include fallback priority guidance when explicit priority is set:\n%s", got)
-	}
-	if strings.Contains(got, "`--due-date`") || strings.Contains(got, "`--project") {
-		t.Fatalf("prompt should not include removed quick-create fields:\n%s", got)
-	}
-}
-
-func TestBuildQuickCreatePrompt_PriorityOnly(t *testing.T) {
-	task := Task{
-		QuickCreatePrompt:   "Urgent: server is down",
-		QuickCreatePriority: "urgent",
-	}
-	got := buildQuickCreatePrompt(task)
-
-	if !strings.Contains(got, "`--priority urgent`") {
-		t.Fatalf("prompt missing explicit priority flag:\n%s", got)
-	}
-	if strings.Contains(got, "Map P0/P1") {
-		t.Fatalf("prompt should not include fallback priority guidance when explicit priority is set:\n%s", got)
-	}
-	if strings.Contains(got, "`--due-date`") || strings.Contains(got, "`--project`") {
-		t.Fatalf("prompt should not inject unset quick-create flags:\n%s", got)
-	}
-}
-
-func TestBuildQuickCreatePrompt_NoneSet(t *testing.T) {
-	task := Task{QuickCreatePrompt: "Something came up"}
-	got := buildQuickCreatePrompt(task)
-
-	if !strings.Contains(got, "Map P0/P1") {
-		t.Fatalf("prompt should include fallback priority guidance when no explicit priority is set:\n%s", got)
-	}
-	if strings.Contains(got, `\n`) {
-		t.Fatalf("prompt should contain real newlines, got literal \\n:\n%s", got)
 	}
 }
 
