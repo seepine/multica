@@ -486,7 +486,7 @@ export function IssuesFilterMenu({ scopedIssues }: { scopedIssues: Issue[] }) {
           render={
             <TooltipTrigger
               render={
-                <Button variant="outline" size="icon-sm" className="relative text-muted-foreground">
+                <Button variant="ghost" size="icon-sm" className="relative text-muted-foreground">
                   <Filter className="size-4" />
                   {hasActiveFilters && (
                     <span className="absolute top-0 right-0 size-1.5 rounded-full bg-brand" />
