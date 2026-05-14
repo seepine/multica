@@ -9,13 +9,17 @@ import (
 
 // BuildPrompt constructs the task prompt for an agent CLI.
 // Keep this minimal — detailed instructions live in CLAUDE.md / AGENTS.md
-// injected by execenv.InjectRuntimeConfig.
-func BuildPrompt(task Task) string {
+// injected by execenv.InjectRuntimeConfig. The provider string is used by
+// comment-triggered tasks: Codex's per-turn reply template needs the
+// platform-aware "stdin or file" variant, every other provider gets a
+// lightweight inline template (or Windows file for any provider on
+// Windows).
+func BuildPrompt(task Task, provider string) string {
 	if task.ChatSessionID != "" {
 		return buildChatPrompt(task)
 	}
 	if task.TriggerCommentID != "" {
-		return buildCommentPrompt(task)
+		return buildCommentPrompt(task, provider)
 	}
 	if task.AutopilotRunID != "" {
 		return buildAutopilotPrompt(task)
@@ -61,7 +65,7 @@ func buildQuickCreatePrompt(task Task) string {
 
 	// assignee
 	b.WriteString("- **assignee**:\n")
-	b.WriteString("    - When the user names someone (\"assign to X\" / \"@X\"), call `multica workspace members --output json` (and `multica agent list --output json` if it might be an agent) and find the matching entity by display name. On a clean unambiguous match, prefer `--assignee-id <uuid>` using the `user_id` (member) or `id` (agent) from that JSON — UUID matching is exact and robust to name collisions in workspaces with overlapping names. `--assignee <name>` (fuzzy) is acceptable as a fallback when names are unambiguous. On no match or ambiguous match, do NOT pass either flag — instead append a final line to the description: `Unrecognized assignee: X`.\n")
+	b.WriteString("    - When the user names someone (\"assign to X\" / \"@X\"), call `multica workspace members --output json`, `multica agent list --output json`, and `multica squad list --output json` and find the matching entity by display name. Squads are first-class assignees too — a squad name (e.g. \"Super Human\") routes work to the squad leader, who then delegates. On a clean unambiguous match, prefer `--assignee-id <uuid>` using the `user_id` (member) or `id` (agent or squad) from that JSON — UUID matching is exact and robust to name collisions in workspaces with overlapping names. `--assignee <name>` (fuzzy) is acceptable as a fallback when names are unambiguous. On no match or ambiguous match, do NOT pass either flag — instead append a final line to the description: `Unrecognized assignee: X`.\n")
 	agentID := ""
 	agentName := ""
 	if task.Agent != nil {
@@ -107,7 +111,7 @@ func buildQuickCreatePrompt(task Task) string {
 // The reply instructions (including the current TriggerCommentID as --parent)
 // are re-emitted on every turn so resumed sessions cannot carry forward a
 // previous turn's --parent UUID.
-func buildCommentPrompt(task Task) string {
+func buildCommentPrompt(task Task, provider string) string {
 	var b strings.Builder
 	b.WriteString("You are running as a local coding agent for a Multica workspace.\n\n")
 	fmt.Fprintf(&b, "Your assigned issue ID is: %s\n\n", task.IssueID)
@@ -128,7 +132,7 @@ func buildCommentPrompt(task Task) string {
 	}
 	fmt.Fprintf(&b, "Start by running `multica issue get %s --output json` to understand your task, then decide how to proceed.\n\n", task.IssueID)
 	fmt.Fprintf(&b, "If you need comment history, `multica issue comment list %s --output json` returns all comments for the issue (server caps at 2000). Pass `--since <RFC3339>` to fetch only comments newer than a known cursor.\n\n", task.IssueID)
-	b.WriteString(execenv.BuildCommentReplyInstructions(task.IssueID, task.TriggerCommentID))
+	b.WriteString(execenv.BuildCommentReplyInstructions(provider, task.IssueID, task.TriggerCommentID))
 	return b.String()
 }
 
@@ -138,6 +142,23 @@ func buildChatPrompt(task Task) string {
 	b.WriteString("You are running as a chat assistant for a Multica workspace.\n")
 	b.WriteString("A user is chatting with you directly. Respond to their message.\n\n")
 	fmt.Fprintf(&b, "User message:\n%s\n", task.ChatMessage)
+	// List attachments by id + filename so the agent can fetch them via
+	// the CLI. We deliberately do NOT inline the URL: chat attachments
+	// live behind a signed CDN with a short TTL, so by the time the agent
+	// has finished thinking the URL embedded in the markdown body may
+	// have expired. `multica attachment download <id>` re-signs at click
+	// time and is the only reliable path.
+	if len(task.ChatMessageAttachments) > 0 {
+		b.WriteString("\nAttachments on this message:\n")
+		for _, a := range task.ChatMessageAttachments {
+			if a.ContentType != "" {
+				fmt.Fprintf(&b, "- id=%s filename=%q content_type=%s\n", a.ID, a.Filename, a.ContentType)
+			} else {
+				fmt.Fprintf(&b, "- id=%s filename=%q\n", a.ID, a.Filename)
+			}
+		}
+		b.WriteString("Use `multica attachment download <id>` to fetch each file locally before referring to it.\n")
+	}
 	return b.String()
 }
 
