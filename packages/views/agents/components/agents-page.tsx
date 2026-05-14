@@ -458,7 +458,6 @@ export function AgentsPage() {
           members={members}
           currentUserId={currentUser?.id ?? null}
           template={duplicateTemplate}
-          existingAgentNames={agents.map((a) => a.name)}
           onClose={() => {
             setShowCreate(false);
             setDuplicateTemplate(null);
