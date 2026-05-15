@@ -46,7 +46,7 @@ import {
 import { StatusIcon, PriorityIcon } from ".";
 import { useQuery } from "@tanstack/react-query";
 import { useWorkspaceId } from "@multica/core/hooks";
-import { memberListOptions, agentListOptions } from "@multica/core/workspace/queries";
+import { memberListOptions, agentListOptions, squadListOptions } from "@multica/core/workspace/queries";
 import { projectListOptions } from "@multica/core/projects/queries";
 import { labelListOptions } from "@multica/core/labels/queries";
 import { ProjectIcon } from "../../projects/components/project-icon";
@@ -65,6 +65,7 @@ import {
 import { Tooltip, TooltipTrigger, TooltipContent } from "@multica/ui/components/ui/tooltip";
 import type { Issue } from "@multica/core/types";
 import { useT } from "../../i18n";
+import { matchesPinyin } from "../../editor/extensions/pinyin-match";
 
 // ---------------------------------------------------------------------------
 // HoverCheck — shadcn official pattern (PR #6862)
@@ -168,6 +169,7 @@ function ActorSubContent({
   includeNoAssignee,
   onToggleNoAssignee,
   noAssigneeCount,
+  showSquads = true,
 }: {
   counts: Map<string, number>;
   selected: ActorFilterValue[];
@@ -176,21 +178,26 @@ function ActorSubContent({
   includeNoAssignee?: boolean;
   onToggleNoAssignee?: () => void;
   noAssigneeCount?: number;
+  showSquads?: boolean;
 }) {
   const { t } = useT("issues");
   const [search, setSearch] = useState("");
   const wsId = useWorkspaceId();
   const { data: members = [] } = useQuery(memberListOptions(wsId));
   const { data: agents = [] } = useQuery(agentListOptions(wsId));
+  const { data: squads = [] } = useQuery(squadListOptions(wsId));
   const query = search.trim().toLowerCase();
   const filteredMembers = members.filter((m) =>
-    m.name.toLowerCase().includes(query),
+    m.name.toLowerCase().includes(query) || matchesPinyin(m.name, query),
   );
   const filteredAgents = agents.filter((a) =>
-    !a.archived_at && a.name.toLowerCase().includes(query),
+    !a.archived_at && (a.name.toLowerCase().includes(query) || matchesPinyin(a.name, query)),
+  );
+  const filteredSquads = squads.filter((s) =>
+    !s.archived_at && (s.name.toLowerCase().includes(query) || matchesPinyin(s.name, query)),
   );
 
-  const isSelected = (type: "member" | "agent", id: string) =>
+  const isSelected = (type: "member" | "agent" | "squad", id: string) =>
     selected.some((f) => f.type === type && f.id === id);
 
   return (
@@ -283,7 +290,36 @@ function ActorSubContent({
           </DropdownMenuGroup>
         )}
 
-        {filteredMembers.length === 0 && filteredAgents.length === 0 && search && (
+        {showSquads && filteredSquads.length > 0 && (
+          <DropdownMenuGroup>
+            <DropdownMenuLabel>{t(($) => $.filters.squads_group)}</DropdownMenuLabel>
+            {filteredSquads.map((s) => {
+              const checked = isSelected("squad", s.id);
+              const count = counts.get(`squad:${s.id}`) ?? 0;
+              return (
+                <DropdownMenuCheckboxItem
+                  key={s.id}
+                  checked={checked}
+                  onCheckedChange={() =>
+                    onToggle({ type: "squad", id: s.id })
+                  }
+                  className={FILTER_ITEM_CLASS}
+                >
+                  <HoverCheck checked={checked} />
+                  <ActorAvatar actorType="squad" actorId={s.id} size={18} />
+                  <span className="truncate">{s.name}</span>
+                  {count > 0 && (
+                    <span className="ml-auto text-xs text-muted-foreground">
+                      {count}
+                    </span>
+                  )}
+                </DropdownMenuCheckboxItem>
+              );
+            })}
+          </DropdownMenuGroup>
+        )}
+
+        {filteredMembers.length === 0 && filteredAgents.length === 0 && (!showSquads || filteredSquads.length === 0) && search && (
           <div className="px-2 py-3 text-center text-sm text-muted-foreground">
             {t(($) => $.filters.no_results)}
           </div>
@@ -453,8 +489,12 @@ function LabelSubContent({
 // IssuesHeader
 // ---------------------------------------------------------------------------
 
-export function IssuesFilterMenu({ scopedIssues }: { scopedIssues: Issue[] }) {
+export function IssuesHeader({ scopedIssues }: { scopedIssues: Issue[] }) {
   const { t } = useT("issues");
+  const scope = useIssuesScopeStore((s) => s.scope);
+  const setScope = useIssuesScopeStore((s) => s.setScope);
+
+  const viewMode = useViewStore((s) => s.viewMode);
   const statusFilters = useViewStore((s) => s.statusFilters);
   const priorityFilters = useViewStore((s) => s.priorityFilters);
   const assigneeFilters = useViewStore((s) => s.assigneeFilters);
@@ -463,6 +503,9 @@ export function IssuesFilterMenu({ scopedIssues }: { scopedIssues: Issue[] }) {
   const projectFilters = useViewStore((s) => s.projectFilters);
   const includeNoProject = useViewStore((s) => s.includeNoProject);
   const labelFilters = useViewStore((s) => s.labelFilters);
+  const sortBy = useViewStore((s) => s.sortBy);
+  const sortDirection = useViewStore((s) => s.sortDirection);
+  const cardProperties = useViewStore((s) => s.cardProperties);
   const act = useViewStoreApi().getState();
 
   const counts = useIssueCounts(scopedIssues);
@@ -479,202 +522,6 @@ export function IssuesFilterMenu({ scopedIssues }: { scopedIssues: Issue[] }) {
       labelFilters,
     }) > 0;
 
-  return (
-    <DropdownMenu>
-      <Tooltip>
-        <DropdownMenuTrigger
-          render={
-            <TooltipTrigger
-              render={
-                <Button variant="ghost" size="icon-sm" className="relative text-muted-foreground">
-                  <Filter className="size-4" />
-                  {hasActiveFilters && (
-                    <span className="absolute top-0 right-0 size-1.5 rounded-full bg-brand" />
-                  )}
-                </Button>
-              }
-            />
-          }
-        />
-        <TooltipContent side="bottom">{t(($) => $.filters.tooltip)}</TooltipContent>
-      </Tooltip>
-      <DropdownMenuContent align="end" className="w-auto">
-        <DropdownMenuSub>
-          <DropdownMenuSubTrigger>
-            <CircleDot className="size-3.5" />
-            <span className="flex-1">{t(($) => $.filters.section_status)}</span>
-            {statusFilters.length > 0 && (
-              <span className="text-xs text-primary font-medium">
-                {statusFilters.length}
-              </span>
-            )}
-          </DropdownMenuSubTrigger>
-          <DropdownMenuSubContent className="w-auto min-w-48">
-            {ALL_STATUSES.map((s) => {
-              const checked = statusFilters.includes(s);
-              const count = counts.status.get(s) ?? 0;
-              return (
-                <DropdownMenuCheckboxItem
-                  key={s}
-                  checked={checked}
-                  onCheckedChange={() => act.toggleStatusFilter(s)}
-                  className={FILTER_ITEM_CLASS}
-                >
-                  <HoverCheck checked={checked} />
-                  <StatusIcon status={s} className="h-3.5 w-3.5" />
-                  {t(($) => $.status[s])}
-                  {count > 0 && (
-                    <span className="ml-auto text-xs text-muted-foreground">
-                      {t(($) => $.filters.issue_count, { count })}
-                    </span>
-                  )}
-                </DropdownMenuCheckboxItem>
-              );
-            })}
-          </DropdownMenuSubContent>
-        </DropdownMenuSub>
-
-        <DropdownMenuSub>
-          <DropdownMenuSubTrigger>
-            <SignalHigh className="size-3.5" />
-            <span className="flex-1">{t(($) => $.filters.section_priority)}</span>
-            {priorityFilters.length > 0 && (
-              <span className="text-xs text-primary font-medium">
-                {priorityFilters.length}
-              </span>
-            )}
-          </DropdownMenuSubTrigger>
-          <DropdownMenuSubContent className="w-auto min-w-44">
-            {PRIORITY_ORDER.map((p) => {
-              const checked = priorityFilters.includes(p);
-              const count = counts.priority.get(p) ?? 0;
-              return (
-                <DropdownMenuCheckboxItem
-                  key={p}
-                  checked={checked}
-                  onCheckedChange={() => act.togglePriorityFilter(p)}
-                  className={FILTER_ITEM_CLASS}
-                >
-                  <HoverCheck checked={checked} />
-                  <PriorityIcon priority={p} />
-                  {t(($) => $.priority[p])}
-                  {count > 0 && (
-                    <span className="ml-auto text-xs text-muted-foreground">
-                      {t(($) => $.filters.issue_count, { count })}
-                    </span>
-                  )}
-                </DropdownMenuCheckboxItem>
-              );
-            })}
-          </DropdownMenuSubContent>
-        </DropdownMenuSub>
-
-        <DropdownMenuSub>
-          <DropdownMenuSubTrigger>
-            <User className="size-3.5" />
-            <span className="flex-1">{t(($) => $.filters.section_assignee)}</span>
-            {(assigneeFilters.length > 0 || includeNoAssignee) && (
-              <span className="text-xs text-primary font-medium">
-                {assigneeFilters.length + (includeNoAssignee ? 1 : 0)}
-              </span>
-            )}
-          </DropdownMenuSubTrigger>
-          <DropdownMenuSubContent className="w-auto min-w-52 p-0">
-            <ActorSubContent
-              counts={counts.assignee}
-              selected={assigneeFilters}
-              onToggle={act.toggleAssigneeFilter}
-              showNoAssignee
-              includeNoAssignee={includeNoAssignee}
-              onToggleNoAssignee={act.toggleNoAssignee}
-              noAssigneeCount={counts.noAssignee}
-            />
-          </DropdownMenuSubContent>
-        </DropdownMenuSub>
-
-        <DropdownMenuSub>
-          <DropdownMenuSubTrigger>
-            <UserPen className="size-3.5" />
-            <span className="flex-1">{t(($) => $.filters.section_creator)}</span>
-            {creatorFilters.length > 0 && (
-              <span className="text-xs text-primary font-medium">
-                {creatorFilters.length}
-              </span>
-            )}
-          </DropdownMenuSubTrigger>
-          <DropdownMenuSubContent className="w-auto min-w-52 p-0">
-            <ActorSubContent
-              counts={counts.creator}
-              selected={creatorFilters}
-              onToggle={act.toggleCreatorFilter}
-            />
-          </DropdownMenuSubContent>
-        </DropdownMenuSub>
-
-        <DropdownMenuSub>
-          <DropdownMenuSubTrigger>
-            <FolderKanban className="size-3.5" />
-            <span className="flex-1">{t(($) => $.filters.section_project)}</span>
-            {(projectFilters.length > 0 || includeNoProject) && (
-              <span className="text-xs text-primary font-medium">
-                {projectFilters.length + (includeNoProject ? 1 : 0)}
-              </span>
-            )}
-          </DropdownMenuSubTrigger>
-          <DropdownMenuSubContent className="w-auto min-w-52 p-0">
-            <ProjectSubContent
-              counts={counts.project}
-              selected={projectFilters}
-              onToggle={act.toggleProjectFilter}
-              includeNoProject={includeNoProject}
-              onToggleNoProject={act.toggleNoProject}
-              noProjectCount={counts.noProject}
-            />
-          </DropdownMenuSubContent>
-        </DropdownMenuSub>
-
-        <DropdownMenuSub>
-          <DropdownMenuSubTrigger>
-            <Tag className="size-3.5" />
-            <span className="flex-1">{t(($) => $.filters.section_label)}</span>
-            {labelFilters.length > 0 && (
-              <span className="text-xs text-primary font-medium">
-                {labelFilters.length}
-              </span>
-            )}
-          </DropdownMenuSubTrigger>
-          <DropdownMenuSubContent className="w-auto min-w-52 p-0">
-            <LabelSubContent
-              counts={counts.label}
-              selected={labelFilters}
-              onToggle={act.toggleLabelFilter}
-            />
-          </DropdownMenuSubContent>
-        </DropdownMenuSub>
-
-        {hasActiveFilters && (
-          <>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={act.clearFilters}>
-              {t(($) => $.filters.reset)}
-            </DropdownMenuItem>
-          </>
-        )}
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-}
-
-export function IssuesHeader({ scopedIssues }: { scopedIssues: Issue[] }) {
-  const { t } = useT("issues");
-  const scope = useIssuesScopeStore((s) => s.scope);
-  const setScope = useIssuesScopeStore((s) => s.setScope);
-
-  const viewMode = useViewStore((s) => s.viewMode);
-  const sortBy = useViewStore((s) => s.sortBy);
-  const sortDirection = useViewStore((s) => s.sortDirection);
-  const cardProperties = useViewStore((s) => s.cardProperties);
-  const act = useViewStoreApi().getState();
   const SORT_LABEL_KEY: Record<typeof SORT_OPTIONS[number]["value"], "sort_manual" | "sort_priority" | "sort_due_date" | "sort_created" | "sort_title"> = {
     position: "sort_manual",
     priority: "sort_priority",
@@ -732,7 +579,197 @@ export function IssuesHeader({ scopedIssues }: { scopedIssues: Issue[] }) {
 
       {/* Right: filter + display + view toggle */}
       <div className="flex items-center gap-1">
-        <IssuesFilterMenu scopedIssues={scopedIssues} />
+        {/* Filter */}
+        <DropdownMenu>
+          <Tooltip>
+            <DropdownMenuTrigger
+              render={
+                <TooltipTrigger
+                  render={
+                    <Button variant="outline" size="icon-sm" className="relative text-muted-foreground">
+                      <Filter className="size-4" />
+                      {hasActiveFilters && (
+                        <span className="absolute top-0 right-0 size-1.5 rounded-full bg-brand" />
+                      )}
+                    </Button>
+                  }
+                />
+              }
+            />
+            <TooltipContent side="bottom">{t(($) => $.filters.tooltip)}</TooltipContent>
+          </Tooltip>
+          <DropdownMenuContent align="end" className="w-auto">
+            {/* Status */}
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger>
+                <CircleDot className="size-3.5" />
+                <span className="flex-1">{t(($) => $.filters.section_status)}</span>
+                {statusFilters.length > 0 && (
+                  <span className="text-xs text-primary font-medium">
+                    {statusFilters.length}
+                  </span>
+                )}
+              </DropdownMenuSubTrigger>
+              <DropdownMenuSubContent className="w-auto min-w-48">
+                {ALL_STATUSES.map((s) => {
+                  const checked = statusFilters.includes(s);
+                  const count = counts.status.get(s) ?? 0;
+                  return (
+                    <DropdownMenuCheckboxItem
+                      key={s}
+                      checked={checked}
+                      onCheckedChange={() => act.toggleStatusFilter(s)}
+                      className={FILTER_ITEM_CLASS}
+                    >
+                      <HoverCheck checked={checked} />
+                      <StatusIcon status={s} className="h-3.5 w-3.5" />
+                      {t(($) => $.status[s])}
+                      {count > 0 && (
+                        <span className="ml-auto text-xs text-muted-foreground">
+                          {t(($) => $.filters.issue_count, { count })}
+                        </span>
+                      )}
+                    </DropdownMenuCheckboxItem>
+                  );
+                })}
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+
+            {/* Priority */}
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger>
+                <SignalHigh className="size-3.5" />
+                <span className="flex-1">{t(($) => $.filters.section_priority)}</span>
+                {priorityFilters.length > 0 && (
+                  <span className="text-xs text-primary font-medium">
+                    {priorityFilters.length}
+                  </span>
+                )}
+              </DropdownMenuSubTrigger>
+              <DropdownMenuSubContent className="w-auto min-w-44">
+                {PRIORITY_ORDER.map((p) => {
+                  const checked = priorityFilters.includes(p);
+                  const count = counts.priority.get(p) ?? 0;
+                  return (
+                    <DropdownMenuCheckboxItem
+                      key={p}
+                      checked={checked}
+                      onCheckedChange={() => act.togglePriorityFilter(p)}
+                      className={FILTER_ITEM_CLASS}
+                    >
+                      <HoverCheck checked={checked} />
+                      <PriorityIcon priority={p} />
+                      {t(($) => $.priority[p])}
+                      {count > 0 && (
+                        <span className="ml-auto text-xs text-muted-foreground">
+                          {t(($) => $.filters.issue_count, { count })}
+                        </span>
+                      )}
+                    </DropdownMenuCheckboxItem>
+                  );
+                })}
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+
+            {/* Assignee */}
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger>
+                <User className="size-3.5" />
+                <span className="flex-1">{t(($) => $.filters.section_assignee)}</span>
+                {(assigneeFilters.length > 0 || includeNoAssignee) && (
+                  <span className="text-xs text-primary font-medium">
+                    {assigneeFilters.length + (includeNoAssignee ? 1 : 0)}
+                  </span>
+                )}
+              </DropdownMenuSubTrigger>
+              <DropdownMenuSubContent className="w-auto min-w-52 p-0">
+                <ActorSubContent
+                  counts={counts.assignee}
+                  selected={assigneeFilters}
+                  onToggle={act.toggleAssigneeFilter}
+                  showNoAssignee
+                  includeNoAssignee={includeNoAssignee}
+                  onToggleNoAssignee={act.toggleNoAssignee}
+                  noAssigneeCount={counts.noAssignee}
+                />
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+
+            {/* Creator */}
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger>
+                <UserPen className="size-3.5" />
+                <span className="flex-1">{t(($) => $.filters.section_creator)}</span>
+                {creatorFilters.length > 0 && (
+                  <span className="text-xs text-primary font-medium">
+                    {creatorFilters.length}
+                  </span>
+                )}
+              </DropdownMenuSubTrigger>
+              <DropdownMenuSubContent className="w-auto min-w-52 p-0">
+                <ActorSubContent
+                  counts={counts.creator}
+                  selected={creatorFilters}
+                  onToggle={act.toggleCreatorFilter}
+                  showSquads={false}
+                />
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+
+            {/* Project */}
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger>
+                <FolderKanban className="size-3.5" />
+                <span className="flex-1">{t(($) => $.filters.section_project)}</span>
+                {(projectFilters.length > 0 || includeNoProject) && (
+                  <span className="text-xs text-primary font-medium">
+                    {projectFilters.length + (includeNoProject ? 1 : 0)}
+                  </span>
+                )}
+              </DropdownMenuSubTrigger>
+              <DropdownMenuSubContent className="w-auto min-w-52 p-0">
+                <ProjectSubContent
+                  counts={counts.project}
+                  selected={projectFilters}
+                  onToggle={act.toggleProjectFilter}
+                  includeNoProject={includeNoProject}
+                  onToggleNoProject={act.toggleNoProject}
+                  noProjectCount={counts.noProject}
+                />
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+
+            {/* Label */}
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger>
+                <Tag className="size-3.5" />
+                <span className="flex-1">{t(($) => $.filters.section_label)}</span>
+                {labelFilters.length > 0 && (
+                  <span className="text-xs text-primary font-medium">
+                    {labelFilters.length}
+                  </span>
+                )}
+              </DropdownMenuSubTrigger>
+              <DropdownMenuSubContent className="w-auto min-w-52 p-0">
+                <LabelSubContent
+                  counts={counts.label}
+                  selected={labelFilters}
+                  onToggle={act.toggleLabelFilter}
+                />
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+
+            {/* Reset */}
+            {hasActiveFilters && (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={act.clearFilters}>
+                  {t(($) => $.filters.reset)}
+                </DropdownMenuItem>
+              </>
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
 
         {/* Display settings */}
         <Popover>
