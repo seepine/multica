@@ -22,7 +22,7 @@ import {
 } from "@multica/core/inbox/mutations";
 
 import { IssueDetail } from "../../issues/components";
-import { IssuesFilterMenu } from "../../issues/components/issues-header";
+import { IssuesHeader } from "../../issues/components/issues-header";
 import { filterIssues } from "../../issues/utils/filter";
 import { ViewStoreProvider } from "@multica/core/issues/stores/view-store-context";
 import { useClearFiltersOnWorkspaceChange } from "@multica/core/issues/stores/view-store";
@@ -259,7 +259,7 @@ export function InboxPage() {
       </div>
       <div className="flex items-center gap-1">
         <ViewStoreProvider store={useInboxViewStore}>
-          <IssuesFilterMenu scopedIssues={filterableIssues} />
+          <IssuesHeader scopedIssues={filterableIssues} />
         </ViewStoreProvider>
         <DropdownMenu>
           <DropdownMenuTrigger
